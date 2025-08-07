@@ -1030,3 +1030,445 @@ public class ModelService : IModelService
 
     // ... rest of the ModelService implementation remains the same ...
 }
+
+
+
+
+
+
+
+
+Using member 'Microsoft.Extensions.DependencyInjection.OptionsBuilderDataAnnotationsExtensions.ValidateDataAnnotations<TOptions>(OptionsBuilder<TOptions>)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. Uses DataAnnotationValidateOptions which is unsafe given that the options type passed in when calling Validate cannot be statically analyzed so its members may be trimmed.
+Using member 'System.Net.Http.Json.JsonContent.Create(Object, Type, MediaTypeHeaderValue, JsonSerializerOptions)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.
+Using member 'System.Text.Json.JsonSerializer.Deserialize(String, Type, JsonSerializerOptions)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.
+Using member 'System.Text.Json.JsonSerializer.Deserialize(String, Type, JsonSerializerOptions)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. JSON serialization and deserialization might require types that cannot be statically analyzed. Use the overload that takes a JsonTypeInfo or JsonSerializerContext, or make sure all of the required types are preserved.
+Using member 'Microsoft.Extensions.DependencyInjection.OptionsBuilderConfigurationExtensions.Bind<TOptions>(OptionsBuilder<TOptions>, IConfiguration)' which has 'RequiresUnreferencedCodeAttribute' can break functionality when trimming application code. TOptions's dependent types may have their members trimmed. Ensure all required members are preserved.
+Severity	Code	Description	Project	File	Line	Suppression State
+Warning (active)	IL2026	https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-warnings/il2026	GeminiClient	C:\code\LearningByDoing\GeminiClient\ServiceCollectionExtensions.cs	20	
+Warning (active)	IL2026	https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-warnings/il2026	GeminiClient	C:\code\LearningByDoing\GeminiClient\GeminiApiClient.cs	67	
+Warning (active)	IL2026	https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-warnings/il2026	GeminiClient	C:\code\LearningByDoing\GeminiClient\GeminiApiClient.cs	79	
+Warning (active)	IL2026	https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-warnings/il2026	GeminiClient	C:\code\LearningByDoing\GeminiClient\ModelService.cs	59	
+Warning (active)	IL2026	https://learn.microsoft.com/dotnet/core/deploying/trimming/trim-warnings/il2026	GeminiClient	C:\code\LearningByDoing\GeminiClient\ServiceCollectionExtensions.cs	20	
+
+
+
+
+
+
+
+
+
+// GeminiClient/JsonSerializerContext.cs
+using System.Text.Json.Serialization;
+using GeminiClient.Models;
+
+namespace GeminiClient;
+
+/// <summary>
+/// Source generation context for JSON serialization to support AOT and trimming.
+/// </summary>
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false,
+    PropertyNameCaseInsensitive = true)]
+[JsonSerializable(typeof(GeminiRequest))]
+[JsonSerializable(typeof(GeminiResponse))]
+[JsonSerializable(typeof(Content))]
+[JsonSerializable(typeof(Part))]
+[JsonSerializable(typeof(Candidate))]
+[JsonSerializable(typeof(SafetyRating))]
+[JsonSerializable(typeof(ModelsListResponse))]
+[JsonSerializable(typeof(GeminiModel))]
+[JsonSerializable(typeof(List<GeminiModel>))]
+[JsonSerializable(typeof(List<Content>))]
+[JsonSerializable(typeof(List<Part>))]
+[JsonSerializable(typeof(List<Candidate>))]
+[JsonSerializable(typeof(List<SafetyRating>))]
+[JsonSerializable(typeof(List<string>))]
+internal partial class GeminiJsonContext : JsonSerializerContext
+{
+}
+
+// GeminiClient/GeminiApiClient.cs (Updated for trim-safe serialization)
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using System.Web;
+using GeminiClient.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace GeminiClient;
+
+public class GeminiApiClient : IGeminiApiClient
+{
+    private readonly HttpClient _httpClient;
+    private readonly GeminiApiOptions _options;
+    private readonly ILogger<GeminiApiClient> _logger;
+
+    public GeminiApiClient(HttpClient httpClient, IOptions<GeminiApiOptions> options, ILogger<GeminiApiClient> logger)
+    {
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        if (string.IsNullOrWhiteSpace(_options.ApiKey))
+        {
+            throw new ArgumentException("ApiKey is missing in GeminiApiOptions.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_options.BaseUrl))
+        {
+            throw new ArgumentException("BaseUrl is missing in GeminiApiOptions.");
+        }
+    }
+
+    public async Task<string?> GenerateContentAsync(string modelName, string prompt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+
+        string? apiKey = _options.ApiKey;
+
+        string path = $"/v1beta/models/{modelName}:generateContent";
+        var uriBuilder = new UriBuilder(_httpClient.BaseAddress!)
+        {
+            Path = path,
+            Query = $"key={HttpUtility.UrlEncode(apiKey)}"
+        };
+        Uri requestUri = uriBuilder.Uri;
+
+        var requestBody = new GeminiRequest
+        {
+            Contents = [new Content { Parts = [new Part { Text = prompt }] }]
+        };
+
+        _logger.LogInformation("Sending request to Gemini API: {Uri}", requestUri);
+
+        try
+        {
+            // Trim-safe serialization using source-generated context
+            var jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
+            using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
+            
+            using HttpResponseMessage response = await _httpClient.PostAsync(requestUri, jsonContent, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}", 
+                    response.StatusCode, errorContent);
+                _ = response.EnsureSuccessStatusCode();
+            }
+
+            // Trim-safe deserialization using source-generated context
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            var geminiResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.GeminiResponse);
+            
+            string? generatedText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+            _logger.LogInformation("Successfully received response from Gemini API.");
+            return generatedText;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP request error calling Gemini API.");
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Error deserializing Gemini API response.");
+            throw new InvalidOperationException("Failed to deserialize Gemini API response.", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "An unexpected error occurred while calling Gemini API.");
+            throw;
+        }
+    }
+}
+
+// GeminiClient/ModelService.cs (Updated for trim-safe serialization)
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
+
+namespace GeminiClient;
+
+public class ModelService : IModelService
+{
+    private readonly HttpClient _httpClient;
+    private readonly GeminiApiOptions _options;
+    private readonly ILogger<ModelService> _logger;
+    private readonly IMemoryCache _cache;
+    private const string CacheKey = "gemini_models_list";
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromHours(1);
+
+    public ModelService(
+        HttpClient httpClient, 
+        IOptions<GeminiApiOptions> options, 
+        ILogger<ModelService> logger,
+        IMemoryCache cache)
+    {
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+    }
+
+    public async Task<IReadOnlyList<GeminiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    {
+        // Check cache first
+        if (_cache.TryGetValue<List<GeminiModel>>(CacheKey, out var cachedModels) && cachedModels != null)
+        {
+            _logger.LogDebug("Returning cached models list");
+            return cachedModels.AsReadOnly();
+        }
+
+        try
+        {
+            var requestUrl = $"{_options.BaseUrl?.TrimEnd('/')}/v1beta/models?key={_options.ApiKey}";
+            
+            _logger.LogInformation("Fetching models list from Gemini API");
+            
+            var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            
+            // Trim-safe deserialization using source-generated context
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            var modelsResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.ModelsListResponse);
+            
+            var models = modelsResponse?.Models ?? new List<GeminiModel>();
+            
+            // Cache the results
+            _cache.Set(CacheKey, models, _cacheExpiration);
+            
+            _logger.LogInformation("Successfully fetched {Count} models", models.Count);
+            
+            return models.AsReadOnly();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Failed to fetch models from Gemini API");
+            throw new GeminiApiException("Failed to retrieve available models", ex);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize models response");
+            throw new GeminiApiException("Invalid response format from models API", ex);
+        }
+    }
+
+    // ... rest of ModelService implementation remains the same ...
+    
+    public async Task<IReadOnlyList<GeminiModel>> GetModelsByCapabilityAsync(
+        ModelCapability capability, 
+        CancellationToken cancellationToken = default)
+    {
+        var allModels = await GetAvailableModelsAsync(cancellationToken);
+        
+        var capabilityString = capability switch
+        {
+            ModelCapability.TextGeneration => "generateContent",
+            ModelCapability.CodeGeneration => "generateCode",
+            ModelCapability.ChatCompletion => "generateContent",
+            _ => throw new ArgumentException($"Unknown capability: {capability}")
+        };
+        
+        return allModels
+            .Where(m => m.SupportedGenerationMethods?.Contains(capabilityString) == true)
+            .ToList()
+            .AsReadOnly();
+    }
+
+    public async Task<GeminiModel?> GetModelAsync(string modelName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(modelName))
+            throw new ArgumentException("Model name cannot be empty", nameof(modelName));
+        
+        var models = await GetAvailableModelsAsync(cancellationToken);
+        
+        return models.FirstOrDefault(m => 
+            m.Name?.EndsWith(modelName, StringComparison.OrdinalIgnoreCase) == true ||
+            m.Name?.Equals($"models/{modelName}", StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    public async Task<GeminiModel?> GetRecommendedModelAsync(
+        ModelSelectionCriteria? criteria = null, 
+        CancellationToken cancellationToken = default)
+    {
+        var models = await GetAvailableModelsAsync(cancellationToken);
+        
+        if (!models.Any())
+            return null;
+        
+        criteria ??= ModelSelectionCriteria.Default;
+        
+        // Filter out models with null names first (they're unusable)
+        IEnumerable<GeminiModel> filtered = models.Where(m => !string.IsNullOrWhiteSpace(m.Name));
+        
+        // Filter out known problematic models
+        var problematicModels = new[] { "learnlm", "experimental", "preview" };
+        if (criteria.PreferStable)
+        {
+            filtered = filtered.Where(m => 
+                !problematicModels.Any(p => m.Name!.Contains(p, StringComparison.OrdinalIgnoreCase)));
+        }
+        
+        // Apply filters based on criteria
+        if (criteria.RequiredCapability.HasValue)
+        {
+            var capableModels = await GetModelsByCapabilityAsync(criteria.RequiredCapability.Value, cancellationToken);
+            var capableModelNames = new HashSet<string>(capableModels.Select(m => m.Name).Where(n => n != null)!);
+            filtered = filtered.Where(m => capableModelNames.Contains(m.Name!));
+        }
+        
+        if (criteria.MinInputTokens.HasValue)
+        {
+            filtered = filtered.Where(m => m.InputTokenLimit >= criteria.MinInputTokens.Value);
+        }
+        
+        if (criteria.MinOutputTokens.HasValue)
+        {
+            filtered = filtered.Where(m => m.OutputTokenLimit >= criteria.MinOutputTokens.Value);
+        }
+        
+        // Prioritize based on preference (Name is guaranteed non-null here due to initial filter)
+        return criteria.Preference switch
+        {
+            ModelPreference.Fastest => filtered
+                .Where(m => m.Name!.Contains("flash", StringComparison.OrdinalIgnoreCase))
+                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) && 
+                           !m.Name!.Contains("experimental", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(m => m.Name!.Contains("2.5", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(m => m.Name!.Contains("2.0", StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault() ?? filtered.FirstOrDefault(),
+                
+            ModelPreference.MostCapable => filtered
+                .Where(m => m.Name!.Contains("pro", StringComparison.OrdinalIgnoreCase) || 
+                           m.Name!.Contains("ultra", StringComparison.OrdinalIgnoreCase))
+                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) && 
+                           !m.Name!.Contains("experimental", StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(m => m.InputTokenLimit)
+                .FirstOrDefault() ?? filtered.FirstOrDefault(),
+                
+            ModelPreference.Balanced => filtered
+                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) && 
+                           !m.Name!.Contains("experimental", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(m => m.Name!.Contains("flash", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenByDescending(m => m.Name)
+                .FirstOrDefault() ?? filtered.FirstOrDefault(),
+                
+            _ => filtered.FirstOrDefault()
+        };
+    }
+}
+
+// GeminiClient/ServiceCollectionExtensions.cs (Updated to avoid trimming warnings)
+using System.ComponentModel.DataAnnotations;
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
+
+namespace GeminiClient;
+
+public static class ServiceCollectionExtensions
+{
+    [UnconditionalSuppressMessage("Trimming", "IL2026:RequiresUnreferencedCode",
+        Justification = "GeminiApiOptions is preserved and only contains primitive types")]
+    public static IServiceCollection AddGeminiApiClient(
+        this IServiceCollection services,
+        IConfigurationSection configurationSection)
+    {
+        ArgumentNullException.ThrowIfNull(configurationSection);
+
+        // Manual configuration binding to avoid trimming issues
+        services.Configure<GeminiApiOptions>(options =>
+        {
+            options.ApiKey = configurationSection["ApiKey"];
+            options.BaseUrl = configurationSection["BaseUrl"] ?? "https://generativelanguage.googleapis.com/";
+            options.DefaultModel = configurationSection["DefaultModel"];
+            options.ModelPreference = configurationSection["ModelPreference"];
+            
+            if (int.TryParse(configurationSection["TimeoutSeconds"], out var timeout))
+                options.TimeoutSeconds = timeout;
+            else
+                options.TimeoutSeconds = 30;
+                
+            if (int.TryParse(configurationSection["MaxRetries"], out var retries))
+                options.MaxRetries = retries;
+            else
+                options.MaxRetries = 3;
+                
+            if (bool.TryParse(configurationSection["EnableDetailedLogging"], out var logging))
+                options.EnableDetailedLogging = logging;
+        });
+
+        // Add validation
+        services.AddSingleton<IValidateOptions<GeminiApiOptions>, GeminiApiOptionsValidator>();
+
+        // Add memory cache for model caching (if not already added)
+        services.TryAddSingleton<IMemoryCache, MemoryCache>();
+
+        // Register ModelService with HttpClient
+        _ = services.AddHttpClient<IModelService, ModelService>((serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<GeminiApiOptions>>().Value;
+            if (string.IsNullOrWhiteSpace(options.BaseUrl))
+                throw new InvalidOperationException("Gemini BaseUrl is not configured.");
+            client.BaseAddress = new Uri(options.BaseUrl);
+        });
+
+        // Register GeminiApiClient with HttpClient
+        _ = services.AddHttpClient<IGeminiApiClient, GeminiApiClient>((serviceProvider, client) =>
+        {
+            var options = serviceProvider.GetRequiredService<IOptions<GeminiApiOptions>>().Value;
+            if (string.IsNullOrWhiteSpace(options.BaseUrl))
+                throw new InvalidOperationException("Gemini BaseUrl is not configured.");
+            client.BaseAddress = new Uri(options.BaseUrl);
+        });
+
+        return services;
+    }
+}
+
+// GeminiClient/GeminiApiOptionsValidator.cs (New file for manual validation)
+using Microsoft.Extensions.Options;
+
+namespace GeminiClient;
+
+public class GeminiApiOptionsValidator : IValidateOptions<GeminiApiOptions>
+{
+    public ValidateOptionsResult Validate(string? name, GeminiApiOptions options)
+    {
+        if (string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            return ValidateOptionsResult.Fail("ApiKey is required");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.BaseUrl))
+        {
+            return ValidateOptionsResult.Fail("BaseUrl is required");
+        }
+
+        if (!Uri.TryCreate(options.BaseUrl, UriKind.Absolute, out _))
+        {
+            return ValidateOptionsResult.Fail("BaseUrl must be a valid URL");
+        }
+
+        if (options.TimeoutSeconds < 1 || options.TimeoutSeconds > 300)
+        {
+            return ValidateOptionsResult.Fail("TimeoutSeconds must be between 1 and 300");
+        }
+
+        if (options.MaxRetries < 0 || options.MaxRetries > 10)
+        {
+            return ValidateOptionsResult.Fail("MaxRetries must be between 0 and 10");
+        }
+
+        return ValidateOptionsResult.Success;
+    }
+}

@@ -1,5 +1,6 @@
-﻿// GeminiClient/GeminiApiClient.cs (Updated)
+﻿// GeminiClient/GeminiApiClient.cs (Updated for trim-safe serialization)
 using System.Net.Http.Json;
+using System.Text;
 using System.Text.Json;
 using System.Web;
 using GeminiClient.Models;
@@ -13,20 +14,12 @@ public class GeminiApiClient : IGeminiApiClient
     private readonly HttpClient _httpClient;
     private readonly GeminiApiOptions _options;
     private readonly ILogger<GeminiApiClient> _logger;
-    private readonly JsonSerializerOptions _jsonOptions;
 
     public GeminiApiClient(HttpClient httpClient, IOptions<GeminiApiOptions> options, ILogger<GeminiApiClient> logger)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-        // Configure JSON options with source generation
-        _jsonOptions = new JsonSerializerOptions
-        {
-            TypeInfoResolver = GeminiJsonContext.Default,
-            PropertyNameCaseInsensitive = true
-        };
 
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
         {
@@ -63,20 +56,23 @@ public class GeminiApiClient : IGeminiApiClient
 
         try
         {
-            // Use JsonContent.Create with our configured options
-            using var jsonContent = JsonContent.Create(requestBody, typeof(GeminiRequest), mediaType: null, _jsonOptions);
+            // Trim-safe serialization using source-generated context
+            var jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
+            using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
+            
             using HttpResponseMessage response = await _httpClient.PostAsync(requestUri, jsonContent, cancellationToken);
 
             if (!response.IsSuccessStatusCode)
             {
                 string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}", response.StatusCode, errorContent);
+                _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}", 
+                    response.StatusCode, errorContent);
                 _ = response.EnsureSuccessStatusCode();
             }
 
-            // Use our configured JSON options for deserialization
+            // Trim-safe deserialization using source-generated context
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-            var geminiResponse = JsonSerializer.Deserialize(responseJson, typeof(GeminiResponse), _jsonOptions) as GeminiResponse;
+            var geminiResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.GeminiResponse);
             
             string? generatedText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
             _logger.LogInformation("Successfully received response from Gemini API.");

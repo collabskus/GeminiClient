@@ -10,7 +10,8 @@ namespace GeminiClient;
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    WriteIndented = false)]
+    WriteIndented = false,
+    PropertyNameCaseInsensitive = true)]
 [JsonSerializable(typeof(GeminiRequest))]
 [JsonSerializable(typeof(GeminiResponse))]
 [JsonSerializable(typeof(Content))]
@@ -20,6 +21,10 @@ namespace GeminiClient;
 [JsonSerializable(typeof(ModelsListResponse))]
 [JsonSerializable(typeof(GeminiModel))]
 [JsonSerializable(typeof(List<GeminiModel>))]
+[JsonSerializable(typeof(List<Content>))]
+[JsonSerializable(typeof(List<Part>))]
+[JsonSerializable(typeof(List<Candidate>))]
+[JsonSerializable(typeof(List<SafetyRating>))]
 [JsonSerializable(typeof(List<string>))]
 internal partial class GeminiJsonContext : JsonSerializerContext
 {
