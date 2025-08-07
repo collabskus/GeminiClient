@@ -1,4 +1,4 @@
-﻿// GeminiClient/ModelService.cs
+﻿// GeminiClient/ModelService.cs (Updated)
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
@@ -13,12 +13,13 @@ public class ModelService : IModelService
     private readonly GeminiApiOptions _options;
     private readonly ILogger<ModelService> _logger;
     private readonly IMemoryCache _cache;
+    private readonly JsonSerializerOptions _jsonOptions;
     private const string CacheKey = "gemini_models_list";
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromHours(1);
 
     public ModelService(
-        HttpClient httpClient,
-        IOptions<GeminiApiOptions> options,
+        HttpClient httpClient, 
+        IOptions<GeminiApiOptions> options, 
         ILogger<ModelService> logger,
         IMemoryCache cache)
     {
@@ -26,6 +27,13 @@ public class ModelService : IModelService
         _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        
+        // Configure JSON options with source generation
+        _jsonOptions = new JsonSerializerOptions
+        {
+            TypeInfoResolver = GeminiJsonContext.Default,
+            PropertyNameCaseInsensitive = true
+        };
     }
 
     public async Task<IReadOnlyList<GeminiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
@@ -40,22 +48,23 @@ public class ModelService : IModelService
         try
         {
             var requestUrl = $"{_options.BaseUrl?.TrimEnd('/')}/v1beta/models?key={_options.ApiKey}";
-
+            
             _logger.LogInformation("Fetching models list from Gemini API");
-
+            
             var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             response.EnsureSuccessStatusCode();
-
-            var modelsResponse = await response.Content.ReadFromJsonAsync<ModelsListResponse>(
-                cancellationToken: cancellationToken);
-
+            
+            // Use our configured JSON options for deserialization
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            var modelsResponse = JsonSerializer.Deserialize(responseJson, typeof(ModelsListResponse), _jsonOptions) as ModelsListResponse;
+            
             var models = modelsResponse?.Models ?? new List<GeminiModel>();
-
+            
             // Cache the results
             _cache.Set(CacheKey, models, _cacheExpiration);
-
+            
             _logger.LogInformation("Successfully fetched {Count} models", models.Count);
-
+            
             return models.AsReadOnly();
         }
         catch (HttpRequestException ex)
@@ -69,7 +78,7 @@ public class ModelService : IModelService
             throw new GeminiApiException("Invalid response format from models API", ex);
         }
     }
-
+    W
     public async Task<IReadOnlyList<GeminiModel>> GetModelsByCapabilityAsync(
         ModelCapability capability,
         CancellationToken cancellationToken = default)

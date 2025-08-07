@@ -740,3 +740,293 @@ Let's make AI more accessible, one prompt at a time! 🤖"
 # git remote add origin https://github.com/yourusername/GeminiClient.git
 # git branch -M main
 # git push -u origin main --force
+
+
+
+
+
+
+
+
+kushal@flex2024:~/src/myangular/angulartwenty$ cd ~/Downloads/
+kushal@flex2024:~/Downloads$ cd ~/bin/gemini-client-linux-x64/
+kushal@flex2024:~/bin/gemini-client-linux-x64$ chmod +x gemini-client-linux-x64 
+kushal@flex2024:~/bin/gemini-client-linux-x64$ ./gemini-client-linux-x64 
+ERROR: Application startup failed. Reflection-based serialization has been disabled for this application. Either use the source generator APIs or explicitly configure the 'JsonSerializerOptions.TypeInfoResolver' property.
+kushal@flex2024:~/bin/gemini-client-linux-x64$
+
+
+
+
+This error occurs because the application is using reflection-based JSON serialization, but when published with trimming (`PublishTrimmed=true`), the necessary types get removed. We need to configure the JSON serialization to be trim-safe.Now let's update the project file to properly configure trimming:For a simpler alternative that doesn't require source generation, we can disable trimming for now:## The Problem Explained:
+
+The error occurs because:
+1. **Trimming removes "unused" code** to make binaries smaller
+2. **Reflection-based JSON serialization** looks for types at runtime
+3. The trimmer doesn't know these types are needed, so it removes them
+4. When the app runs, it can't find the types it needs for JSON
+
+## Solutions:
+
+### Option 1: **Source Generation (Recommended for Production)**
+I've provided the code above that:
+- Adds a `JsonSerializerContext` with source generation
+- Registers all JSON types at compile time
+- Updates serialization code to use the generated context
+- Makes the app fully trim-compatible
+
+**Pros**: Smaller binaries, faster startup, better performance
+**Cons**: More code changes required
+
+### Option 2: **Disable Trimming (Quick Fix)**
+Simply build without trimming:
+```bash
+dotnet publish ./GeminiClientConsole/GeminiClientConsole.csproj \
+  --configuration Release \
+  --runtime linux-x64 \
+  --self-contained true \
+  -p:PublishSingleFile=true \
+  -p:PublishTrimmed=false
+```
+
+**Pros**: No code changes needed, works immediately
+**Cons**: Larger binaries (~150MB instead of ~35MB)
+
+### Option 3: **Preserve JSON Types (Middle Ground)**
+Add trim directives to preserve specific assemblies:
+```xml
+<ItemGroup>
+  <TrimmerRootAssembly Include="System.Text.Json" />
+  <TrimmerRootAssembly Include="GeminiClient" />
+</ItemGroup>
+```
+
+## Immediate Fix for You:
+
+For now, the quickest solution is to **disable trimming**. Just rebuild with:
+```bash
+dotnet publish ./GeminiClientConsole/GeminiClientConsole.csproj \
+  --configuration Release \
+  --runtime linux-x64 \
+  --self-contained true \
+  --output ./publish/linux-x64 \
+  -p:PublishSingleFile=true \
+  -p:PublishTrimmed=false
+```
+
+Then copy the new binary to your `~/bin/gemini-client-linux-x64/` directory and it should work!
+
+The file will be larger (around 150MB instead of 35MB) but it will work immediately without code changes.
+
+// GeminiClient/JsonSerializerContext.cs
+using System.Text.Json.Serialization;
+using GeminiClient.Models;
+
+namespace GeminiClient;
+
+/// <summary>
+/// Source generation context for JSON serialization to support AOT and trimming.
+/// </summary>
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    WriteIndented = false)]
+[JsonSerializable(typeof(GeminiRequest))]
+[JsonSerializable(typeof(GeminiResponse))]
+[JsonSerializable(typeof(Content))]
+[JsonSerializable(typeof(Part))]
+[JsonSerializable(typeof(Candidate))]
+[JsonSerializable(typeof(SafetyRating))]
+[JsonSerializable(typeof(ModelsListResponse))]
+[JsonSerializable(typeof(GeminiModel))]
+[JsonSerializable(typeof(List<GeminiModel>))]
+[JsonSerializable(typeof(List<string>))]
+internal partial class GeminiJsonContext : JsonSerializerContext
+{
+}
+
+// GeminiClient/GeminiApiClient.cs (Updated)
+using System.Net.Http.Json;
+using System.Text.Json;
+using System.Web;
+using GeminiClient.Models;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+
+namespace GeminiClient;
+
+public class GeminiApiClient : IGeminiApiClient
+{
+    private readonly HttpClient _httpClient;
+    private readonly GeminiApiOptions _options;
+    private readonly ILogger<GeminiApiClient> _logger;
+    private readonly JsonSerializerOptions _jsonOptions;
+
+    public GeminiApiClient(HttpClient httpClient, IOptions<GeminiApiOptions> options, ILogger<GeminiApiClient> logger)
+    {
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+        // Configure JSON options with source generation
+        _jsonOptions = new JsonSerializerOptions
+        {
+            TypeInfoResolver = GeminiJsonContext.Default,
+            PropertyNameCaseInsensitive = true
+        };
+
+        if (string.IsNullOrWhiteSpace(_options.ApiKey))
+        {
+            throw new ArgumentException("ApiKey is missing in GeminiApiOptions.");
+        }
+
+        if (string.IsNullOrWhiteSpace(_options.BaseUrl))
+        {
+            throw new ArgumentException("BaseUrl is missing in GeminiApiOptions.");
+        }
+    }
+
+    public async Task<string?> GenerateContentAsync(string modelName, string prompt, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(modelName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(prompt);
+
+        string? apiKey = _options.ApiKey;
+
+        string path = $"/v1beta/models/{modelName}:generateContent";
+        var uriBuilder = new UriBuilder(_httpClient.BaseAddress!)
+        {
+            Path = path,
+            Query = $"key={HttpUtility.UrlEncode(apiKey)}"
+        };
+        Uri requestUri = uriBuilder.Uri;
+
+        var requestBody = new GeminiRequest
+        {
+            Contents = [new Content { Parts = [new Part { Text = prompt }] }]
+        };
+
+        _logger.LogInformation("Sending request to Gemini API: {Uri}", requestUri);
+
+        try
+        {
+            // Use JsonContent.Create with our configured options
+            using var jsonContent = JsonContent.Create(requestBody, typeof(GeminiRequest), mediaType: null, _jsonOptions);
+            using HttpResponseMessage response = await _httpClient.PostAsync(requestUri, jsonContent, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}", response.StatusCode, errorContent);
+                _ = response.EnsureSuccessStatusCode();
+            }
+
+            // Use our configured JSON options for deserialization
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            var geminiResponse = JsonSerializer.Deserialize(responseJson, typeof(GeminiResponse), _jsonOptions) as GeminiResponse;
+            
+            string? generatedText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+            _logger.LogInformation("Successfully received response from Gemini API.");
+            return generatedText;
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP request error calling Gemini API.");
+            throw;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Error deserializing Gemini API response.");
+            throw new InvalidOperationException("Failed to deserialize Gemini API response.", ex);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "An unexpected error occurred while calling Gemini API.");
+            throw;
+        }
+    }
+}
+
+// GeminiClient/ModelService.cs (Updated)
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Caching.Memory;
+
+namespace GeminiClient;
+
+public class ModelService : IModelService
+{
+    private readonly HttpClient _httpClient;
+    private readonly GeminiApiOptions _options;
+    private readonly ILogger<ModelService> _logger;
+    private readonly IMemoryCache _cache;
+    private readonly JsonSerializerOptions _jsonOptions;
+    private const string CacheKey = "gemini_models_list";
+    private readonly TimeSpan _cacheExpiration = TimeSpan.FromHours(1);
+
+    public ModelService(
+        HttpClient httpClient, 
+        IOptions<GeminiApiOptions> options, 
+        ILogger<ModelService> logger,
+        IMemoryCache cache)
+    {
+        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
+        
+        // Configure JSON options with source generation
+        _jsonOptions = new JsonSerializerOptions
+        {
+            TypeInfoResolver = GeminiJsonContext.Default,
+            PropertyNameCaseInsensitive = true
+        };
+    }
+
+    public async Task<IReadOnlyList<GeminiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
+    {
+        // Check cache first
+        if (_cache.TryGetValue<List<GeminiModel>>(CacheKey, out var cachedModels) && cachedModels != null)
+        {
+            _logger.LogDebug("Returning cached models list");
+            return cachedModels.AsReadOnly();
+        }
+
+        try
+        {
+            var requestUrl = $"{_options.BaseUrl?.TrimEnd('/')}/v1beta/models?key={_options.ApiKey}";
+            
+            _logger.LogInformation("Fetching models list from Gemini API");
+            
+            var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            
+            // Use our configured JSON options for deserialization
+            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            var modelsResponse = JsonSerializer.Deserialize(responseJson, typeof(ModelsListResponse), _jsonOptions) as ModelsListResponse;
+            
+            var models = modelsResponse?.Models ?? new List<GeminiModel>();
+            
+            // Cache the results
+            _cache.Set(CacheKey, models, _cacheExpiration);
+            
+            _logger.LogInformation("Successfully fetched {Count} models", models.Count);
+            
+            return models.AsReadOnly();
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Failed to fetch models from Gemini API");
+            throw new GeminiApiException("Failed to retrieve available models", ex);
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "Failed to deserialize models response");
+            throw new GeminiApiException("Invalid response format from models API", ex);
+        }
+    }
+
+    // ... rest of the ModelService implementation remains the same ...
+}
