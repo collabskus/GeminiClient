@@ -186,7 +186,7 @@ jobs:
         - \`GEMINI_DEFAULT_MODEL=gemini-2.5-flash\`
         
         ## 📝 Changelog
-        See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
+        See [changelog.md](https://github.com/${{ github.repository }}/blob/main/changelog.md) for details.
         
         ## 🐛 Known Issues
         - Some experimental models may return server errors
