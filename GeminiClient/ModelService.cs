@@ -78,7 +78,7 @@ public class ModelService : IModelService
             throw new GeminiApiException("Invalid response format from models API", ex);
         }
     }
-    W
+
     public async Task<IReadOnlyList<GeminiModel>> GetModelsByCapabilityAsync(
         ModelCapability capability,
         CancellationToken cancellationToken = default)
