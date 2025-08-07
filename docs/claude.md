@@ -1273,3 +1273,90 @@ git push origin v0.0.4  # This triggers your GitHub Actions release
 ```
 
 So update the changelog **when you create the tag** - that's when 0.0.4 becomes an "official release" rather than just "upcoming changes."
+
+
+
+
+
+so what will the changelog look like when I add the tag? 
+btw, here is my git commits if it helps with previous releases 
+PS C:\code\LearningByDoing> git log --oneline -n 10
+06240f0 (HEAD -> main, origin/main) Add changelog entry for 0.0.4
+2e43187 fix api key not found error
+f0bf9be (tag: v0.0.3) clean up warnings
+622fcaf (tag: v0.0.2) remove errant character W from code
+d78cb85 (tag: v0.0.1) properly configure trimming json
+51ab2fc (tag: v0.0.0) 🎉 Initial commit: Gemini Client Console v1.0.0
+PS C:\code\LearningByDoing> 
+
+Perfect! Based on your git history, here's what your changelog should look like **when you add the v0.0.4 tag**:This changelog now properly reflects:
+
+1. **Empty `[Unreleased]`** section - ready for future changes
+2. **`[0.0.4]`** as the current release with today's date and the major feature additions
+3. **Previous releases** based on your actual git commit history:
+   - **v0.0.3**: "clean up warnings" 
+   - **v0.0.2**: "remove errant character W from code"
+   - **v0.0.1**: "properly configure trimming json"
+   - **v0.0.0**: Your initial commit
+
+The key insight from your git log is that **v0.0.4 includes the major API key configuration fix** (`2e43187 fix api key not found error`) which is the `AppContext.BaseDirectory` fix we discussed earlier. This is actually a significant change that should be highlighted!
+
+Would you like me to add a "### Fixed" section to v0.0.4 to specifically call out that important configuration path fix? That's a notable improvement that users will care about.
+
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [0.0.4] - 2025-08-07
+
+### Added
+- Interactive console client for Google Gemini AI API
+- Dynamic model discovery and selection with smart recommendations
+- Real-time performance metrics with response time tracking and token speed analysis
+- Session statistics tracking for all requests
+- Support for multiple platform architectures (Windows x64/x86/ARM64, Linux x64/ARM/ARM64, macOS x64/ARM64)
+- Automated GitHub Actions CI/CD pipeline for cross-platform builds and releases
+- Configuration support via appsettings.json, environment variables, and user secrets
+- Smart error handling with automatic fallback to stable models
+- Visual performance indicators for response speeds
+- Model categorization (Flash, Pro, Ultra, Experimental)
+
+### Features
+- **Model Management**: Automatic fetching of available Gemini models with detailed information
+- **Performance Tracking**: Response time monitoring with tokens/second throughput analysis
+- **Cross-Platform Support**: Self-contained executables for Windows, Linux, and macOS
+- **Flexible Configuration**: Multiple configuration methods with proper precedence
+- **Developer Experience**: Comprehensive error messages and user-friendly interface
+
+### Technical
+- Built with .NET 9.0 framework
+- Self-contained, trimmed single-file executables
+- Dependency injection with Microsoft.Extensions.Hosting
+- Robust configuration management with validation
+- Comprehensive logging support
+
+## [0.0.3] - 2025-08-07
+
+### Fixed
+- Clean up compiler warnings
+
+## [0.0.2] - 2025-08-07
+
+### Fixed
+- Remove errant character 'W' from code
+
+## [0.0.1] - 2025-08-07
+
+### Fixed
+- Properly configure trimming for JSON serialization
+
+## [0.0.0] - 2025-08-07
+
+### Added
+- 🎉 Initial commit: Gemini Client Console v1.0.0
+- Basic project structure and foundation
