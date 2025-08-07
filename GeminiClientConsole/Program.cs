@@ -13,6 +13,10 @@ public class Program
     public static async Task Main(string[] args)
     {
         IHost host = Host.CreateDefaultBuilder(args)
+            .ConfigureAppConfiguration((hostingContext, config) =>
+            {
+                config.SetBasePath(AppContext.BaseDirectory);
+            })
             .ConfigureServices((context, services) =>
             {
                 IConfigurationSection geminiConfigSection = context.Configuration.GetSection(GeminiConfigSectionName);
