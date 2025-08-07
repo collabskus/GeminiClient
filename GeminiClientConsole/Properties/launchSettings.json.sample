@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "GeminiClientConsole": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "GeminiSettings:ApiKey": "YOUR_GEMINI_API_KEY_FROM_CONFIG",
+        "GeminiSettings:BaseUrl": "https://generativelanguage.googleapis.com/"
+      }
+    }
+  }
+}
