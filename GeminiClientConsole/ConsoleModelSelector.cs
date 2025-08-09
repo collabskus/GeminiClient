@@ -69,7 +69,9 @@ public class ConsoleModelSelector
 
     private Task<string> PromptUserForSelection(List<GeminiClient.GeminiModel> models, GeminiClient.GeminiModel? recommendedModel)
     {
-        Console.Clear();
+        // Replace Console.Clear() with visual separation:
+        Console.WriteLine(); // Add blank line for separation
+        Console.WriteLine(new string('═', Console.WindowWidth > 0 ? Math.Min(Console.WindowWidth - 1, 80) : 60));
         ConsoleHelper.PrintHeader("Available Gemini Models");
 
         // Display models with formatting
