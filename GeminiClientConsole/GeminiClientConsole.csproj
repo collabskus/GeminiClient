@@ -23,15 +23,15 @@
     <Authors>Your Name</Authors>
     <Description>Interactive console client for Google Gemini AI API</Description>
     <Copyright>Copyright © 2025</Copyright>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Version>0.0.6</Version>
+    <FileVersion>0.0.6.0</FileVersion>
+    <AssemblyVersion>0.0.6.0</AssemblyVersion>
     
     <!-- Repository Information -->
-    <RepositoryUrl>https://github.com/yourusername/GeminiClient</RepositoryUrl>
+    <RepositoryUrl>https://github.com/kusl/GeminiClient</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/yourusername/GeminiClient</PackageProjectUrl>
-    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/kusl/GeminiClient</PackageProjectUrl>
+    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
   </PropertyGroup>
   
   <ItemGroup>

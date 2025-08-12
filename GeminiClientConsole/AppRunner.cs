@@ -6,24 +6,17 @@ using Microsoft.Extensions.Logging;
 
 namespace GeminiClientConsole;
 
-public class AppRunner
+public class AppRunner(
+    IGeminiApiClient geminiClient,
+    ILogger<AppRunner> logger,
+    ConsoleModelSelector modelSelector)
 {
-    private readonly IGeminiApiClient _geminiClient;
-    private readonly ILogger<AppRunner> _logger;
-    private readonly ConsoleModelSelector _modelSelector;
+    private readonly IGeminiApiClient _geminiClient = geminiClient;
+    private readonly ILogger<AppRunner> _logger = logger;
+    private readonly ConsoleModelSelector _modelSelector = modelSelector;
     private string? _selectedModel;
-    private readonly List<ResponseMetrics> _sessionMetrics = new();
+    private readonly List<ResponseMetrics> _sessionMetrics = [];
     private bool _streamingEnabled = true; // Default to streaming
-
-    public AppRunner(
-        IGeminiApiClient geminiClient,
-        ILogger<AppRunner> logger,
-        ConsoleModelSelector modelSelector)
-    {
-        _geminiClient = geminiClient;
-        _logger = logger;
-        _modelSelector = modelSelector;
-    }
 
     public async Task RunAsync()
     {
@@ -98,7 +91,7 @@ public class AppRunner
 
             var totalTimer = Stopwatch.StartNew();
             var responseBuilder = new StringBuilder();
-            var firstChunkReceived = false;
+            bool firstChunkReceived = false;
 
             await foreach (string chunk in _geminiClient.StreamGenerateContentAsync(_selectedModel!, prompt))
             {
@@ -126,7 +119,7 @@ public class AppRunner
             Console.ResetColor();
 
             // Calculate and store metrics
-            var completeResponse = responseBuilder.ToString();
+            string completeResponse = responseBuilder.ToString();
             var metrics = new ResponseMetrics
             {
                 Model = _selectedModel!,
@@ -262,13 +255,13 @@ public class AppRunner
     private async Task ShowProgressAnimation()
     {
         _isAnimating = true;
-        var spinner = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-        var spinnerIndex = 0;
-        var startTime = DateTime.Now;
+        string[] spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        int spinnerIndex = 0;
+        DateTime startTime = DateTime.Now;
 
         while (_isAnimating)
         {
-            var elapsed = DateTime.Now - startTime;
+            TimeSpan elapsed = DateTime.Now - startTime;
             Console.ForegroundColor = ConsoleColor.DarkCyan;
             Console.Write($"\r{spinner[spinnerIndex]} Generating response... [{elapsed:mm\\:ss\\.ff}]");
             Console.ResetColor();
@@ -307,7 +300,7 @@ public class AppRunner
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"📊 Streaming Performance Metrics:");
 
-        var speedBar = CreateSpeedBar(tokensPerSecond);
+        string speedBar = CreateSpeedBar(tokensPerSecond);
 
         Console.WriteLine($"   └─ Total Time: {FormatElapsedTime(metrics.ElapsedTime)}");
         Console.WriteLine($"   └─ Words: {wordCount} | Characters: {metrics.ResponseLength:N0}");
@@ -318,7 +311,7 @@ public class AppRunner
         if (_sessionMetrics.Count > 1)
         {
             var avgTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
-            var comparison = metrics.ElapsedTime < avgTime ? "🟢 faster" : "🔴 slower";
+            string comparison = metrics.ElapsedTime < avgTime ? "🟢 faster" : "🔴 slower";
             Console.WriteLine($"   └─ Session Avg: {FormatElapsedTime(avgTime)} ({comparison})");
         }
 
@@ -331,7 +324,7 @@ public class AppRunner
         Console.WriteLine($"📊 Performance Metrics:");
 
         // Create a simple bar chart for visual representation
-        var speedBar = CreateSpeedBar(tokensPerSecond);
+        string speedBar = CreateSpeedBar(tokensPerSecond);
 
         Console.WriteLine($"   └─ Response Time: {FormatElapsedTime(metrics.ElapsedTime)}");
         Console.WriteLine($"   └─ Words: {wordCount} | Characters: {metrics.ResponseLength:N0}");
@@ -341,18 +334,18 @@ public class AppRunner
         if (_sessionMetrics.Count > 1)
         {
             var avgTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
-            var comparison = metrics.ElapsedTime < avgTime ? "🟢 faster" : "🔴 slower";
+            string comparison = metrics.ElapsedTime < avgTime ? "🟢 faster" : "🔴 slower";
             Console.WriteLine($"   └─ Session Avg: {FormatElapsedTime(avgTime)} ({comparison})");
         }
 
         Console.ResetColor();
     }
 
-    private string CreateSpeedBar(double tokensPerSecond)
+    private static string CreateSpeedBar(double tokensPerSecond)
     {
         // Create a simple visual speed indicator
         int barLength = Math.Min((int)(tokensPerSecond / 10), 10);
-        var bar = new string('█', barLength) + new string('░', 10 - barLength);
+        string bar = new string('█', barLength) + new string('░', 10 - barLength);
 
         string speedRating = tokensPerSecond switch
         {
@@ -378,12 +371,12 @@ public class AppRunner
         Console.WriteLine("\n╔═══ Session Statistics ═══╗");
         Console.ResetColor();
 
-        var totalRequests = _sessionMetrics.Count;
+        int totalRequests = _sessionMetrics.Count;
         var avgResponseTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
-        var minResponseTime = _sessionMetrics.Min(m => m.ElapsedTime);
-        var maxResponseTime = _sessionMetrics.Max(m => m.ElapsedTime);
-        var totalChars = _sessionMetrics.Sum(m => m.ResponseLength);
-        var sessionDuration = DateTime.Now - _sessionMetrics.First().Timestamp;
+        TimeSpan minResponseTime = _sessionMetrics.Min(m => m.ElapsedTime);
+        TimeSpan maxResponseTime = _sessionMetrics.Max(m => m.ElapsedTime);
+        int totalChars = _sessionMetrics.Sum(m => m.ResponseLength);
+        TimeSpan sessionDuration = DateTime.Now - _sessionMetrics.First().Timestamp;
 
         Console.WriteLine($"  📊 Total Requests: {totalRequests}");
         Console.WriteLine($"  ⏱  Average Response: {FormatElapsedTime(avgResponseTime)}");

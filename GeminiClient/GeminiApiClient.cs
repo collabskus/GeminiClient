@@ -54,7 +54,7 @@ public class GeminiApiClient : IGeminiApiClient
 
         try
         {
-            var jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
+            string jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
             using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
             using HttpResponseMessage response = await _httpClient.PostAsync(requestUri, jsonContent, cancellationToken);
@@ -66,8 +66,8 @@ public class GeminiApiClient : IGeminiApiClient
                 _ = response.EnsureSuccessStatusCode();
             }
 
-            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-            var geminiResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.GeminiResponse);
+            string responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            GeminiResponse? geminiResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.GeminiResponse);
 
             string? generatedText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
             _logger.LogInformation("Successfully received response from Gemini API.");
@@ -119,7 +119,7 @@ public class GeminiApiClient : IGeminiApiClient
         Stream stream;
         StreamReader reader;
 
-        var jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
+        string jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
         using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
@@ -167,7 +167,7 @@ public class GeminiApiClient : IGeminiApiClient
             while ((line = await reader.ReadLineAsync(cancellationToken)) != null)
             {
                 // Skip empty lines and comments
-                if (string.IsNullOrWhiteSpace(line) || line.StartsWith(":"))
+                if (string.IsNullOrWhiteSpace(line) || line.StartsWith(':'))
                     continue;
 
                 // Parse SSE format: "data: {json}"
@@ -183,7 +183,7 @@ public class GeminiApiClient : IGeminiApiClient
                     string? textChunk = null;
                     try
                     {
-                        var streamResponse = JsonSerializer.Deserialize(jsonData, GeminiJsonContext.Default.GeminiResponse);
+                        GeminiResponse? streamResponse = JsonSerializer.Deserialize(jsonData, GeminiJsonContext.Default.GeminiResponse);
                         textChunk = streamResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
                     }
                     catch (JsonException ex)

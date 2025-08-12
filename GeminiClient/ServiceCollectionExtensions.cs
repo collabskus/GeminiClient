@@ -26,17 +26,17 @@ public static class ServiceCollectionExtensions
             options.DefaultModel = configurationSection["DefaultModel"];
             options.ModelPreference = configurationSection["ModelPreference"];
 
-            if (int.TryParse(configurationSection["TimeoutSeconds"], out var timeout))
+            if (int.TryParse(configurationSection["TimeoutSeconds"], out int timeout))
                 options.TimeoutSeconds = timeout;
             else
                 options.TimeoutSeconds = 30;
 
-            if (int.TryParse(configurationSection["MaxRetries"], out var retries))
+            if (int.TryParse(configurationSection["MaxRetries"], out int retries))
                 options.MaxRetries = retries;
             else
                 options.MaxRetries = 3;
 
-            if (bool.TryParse(configurationSection["EnableDetailedLogging"], out var logging))
+            if (bool.TryParse(configurationSection["EnableDetailedLogging"], out bool logging))
                 options.EnableDetailedLogging = logging;
         });
 
@@ -49,7 +49,7 @@ public static class ServiceCollectionExtensions
         // Register ModelService with HttpClient
         _ = services.AddHttpClient<IModelService, ModelService>((serviceProvider, client) =>
         {
-            var options = serviceProvider.GetRequiredService<IOptions<GeminiApiOptions>>().Value;
+            GeminiApiOptions options = serviceProvider.GetRequiredService<IOptions<GeminiApiOptions>>().Value;
             if (string.IsNullOrWhiteSpace(options.BaseUrl))
                 throw new InvalidOperationException("Gemini BaseUrl is not configured.");
             client.BaseAddress = new Uri(options.BaseUrl);
@@ -58,7 +58,7 @@ public static class ServiceCollectionExtensions
         // Register GeminiApiClient with HttpClient
         _ = services.AddHttpClient<IGeminiApiClient, GeminiApiClient>((serviceProvider, client) =>
         {
-            var options = serviceProvider.GetRequiredService<IOptions<GeminiApiOptions>>().Value;
+            GeminiApiOptions options = serviceProvider.GetRequiredService<IOptions<GeminiApiOptions>>().Value;
             if (string.IsNullOrWhiteSpace(options.BaseUrl))
                 throw new InvalidOperationException("Gemini BaseUrl is not configured.");
             client.BaseAddress = new Uri(options.BaseUrl);

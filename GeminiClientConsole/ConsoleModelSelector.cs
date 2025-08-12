@@ -29,10 +29,10 @@ public class ConsoleModelSelector
     public async Task<string> SelectModelInteractivelyAsync()
     {
         // Show loading animation while fetching model availability
-        var loadingTask = ShowModelLoadingAnimationAsync();
+        Task loadingTask = ShowModelLoadingAnimationAsync();
 
         // Validate model availability in parallel (simulate API call)
-        var availableModels = await ValidateModelAvailabilityAsync();
+        Dictionary<string, string> availableModels = await ValidateModelAvailabilityAsync();
 
         // Stop loading animation
         _isLoadingModels = false;
@@ -49,7 +49,7 @@ public class ConsoleModelSelector
         // Animate model list display
         for (int i = 0; i < modelList.Count; i++)
         {
-            var model = modelList[i];
+            KeyValuePair<string, string> model = modelList[i];
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.Write($"  [{i + 1}] ");
             Console.ResetColor();
@@ -77,7 +77,7 @@ public class ConsoleModelSelector
             // Default selection (first model)
             if (string.IsNullOrWhiteSpace(input))
             {
-                var defaultModel = modelList[0].Key;
+                string defaultModel = modelList[0].Key;
                 await ShowSelectionConfirmationAsync(defaultModel, isDefault: true);
                 _logger.LogInformation("Model selected: {Model} (default)", defaultModel);
                 return defaultModel;
@@ -87,7 +87,7 @@ public class ConsoleModelSelector
             if (int.TryParse(input.Trim(), out int selection) &&
                 selection >= 1 && selection <= modelList.Count)
             {
-                var selectedModel = modelList[selection - 1].Key;
+                string selectedModel = modelList[selection - 1].Key;
                 await ShowSelectionConfirmationAsync(selectedModel, isDefault: false);
                 _logger.LogInformation("Model selected: {Model}", selectedModel);
                 return selectedModel;
@@ -103,8 +103,8 @@ public class ConsoleModelSelector
     private async Task ShowModelLoadingAnimationAsync()
     {
         _isLoadingModels = true;
-        var frames = new[] { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
-        var frameIndex = 0;
+        string[] frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        int frameIndex = 0;
 
         while (_isLoadingModels)
         {
@@ -133,12 +133,12 @@ public class ConsoleModelSelector
         return availableModels;
     }
 
-    private async Task<string?> ReadLineWithTimeoutAsync(TimeSpan timeout)
+    private static async Task<string?> ReadLineWithTimeoutAsync(TimeSpan timeout)
     {
-        var readTask = Task.Run(() => Console.ReadLine());
+        Task<string?> readTask = Task.Run(() => Console.ReadLine());
         var timeoutTask = Task.Delay(timeout);
 
-        var completedTask = await Task.WhenAny(readTask, timeoutTask);
+        Task completedTask = await Task.WhenAny(readTask, timeoutTask);
 
         if (completedTask == timeoutTask)
         {
@@ -149,7 +149,7 @@ public class ConsoleModelSelector
         return await readTask;
     }
 
-    private async Task ShowSelectionConfirmationAsync(string modelName, bool isDefault)
+    private static async Task ShowSelectionConfirmationAsync(string modelName, bool isDefault)
     {
         Console.ForegroundColor = ConsoleColor.Green;
         Console.Write("✓ Selected: ");
@@ -180,7 +180,7 @@ public class ConsoleModelSelector
         await Task.Delay(300);
     }
 
-    private async Task ShowErrorMessageAsync(string message)
+    private static async Task ShowErrorMessageAsync(string message)
     {
         Console.ForegroundColor = ConsoleColor.Red;
 
@@ -213,7 +213,7 @@ public class ConsoleModelSelector
 
     public List<string> GetAvailableModels()
     {
-        return _availableModels.Keys.ToList();
+        return [.. _availableModels.Keys];
     }
 
     public string GetModelDescription(string modelName)

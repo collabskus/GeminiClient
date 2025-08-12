@@ -7,31 +7,23 @@ using Microsoft.Extensions.Options;
 
 namespace GeminiClient;
 
-public class ModelService : IModelService
+public class ModelService(
+    HttpClient httpClient,
+    IOptions<GeminiApiOptions> options,
+    ILogger<ModelService> logger,
+    IMemoryCache cache) : IModelService
 {
-    private readonly HttpClient _httpClient;
-    private readonly GeminiApiOptions _options;
-    private readonly ILogger<ModelService> _logger;
-    private readonly IMemoryCache _cache;
+    private readonly HttpClient _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+    private readonly GeminiApiOptions _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
+    private readonly ILogger<ModelService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    private readonly IMemoryCache _cache = cache ?? throw new ArgumentNullException(nameof(cache));
     private const string CacheKey = "gemini_models_list";
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromHours(1);
-
-    public ModelService(
-        HttpClient httpClient,
-        IOptions<GeminiApiOptions> options,
-        ILogger<ModelService> logger,
-        IMemoryCache cache)
-    {
-        _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        _options = options?.Value ?? throw new ArgumentNullException(nameof(options));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _cache = cache ?? throw new ArgumentNullException(nameof(cache));
-    }
 
     public async Task<IReadOnlyList<GeminiModel>> GetAvailableModelsAsync(CancellationToken cancellationToken = default)
     {
         // Check cache first
-        if (_cache.TryGetValue<List<GeminiModel>>(CacheKey, out var cachedModels) && cachedModels != null)
+        if (_cache.TryGetValue<List<GeminiModel>>(CacheKey, out List<GeminiModel>? cachedModels) && cachedModels != null)
         {
             _logger.LogDebug("Returning cached models list");
             return cachedModels.AsReadOnly();
@@ -39,18 +31,18 @@ public class ModelService : IModelService
 
         try
         {
-            var requestUrl = $"{_options.BaseUrl?.TrimEnd('/')}/v1beta/models?key={_options.ApiKey}";
+            string requestUrl = $"{_options.BaseUrl?.TrimEnd('/')}/v1beta/models?key={_options.ApiKey}";
 
             _logger.LogInformation("Fetching models list from Gemini API");
 
-            var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
+            HttpResponseMessage response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             // Trim-safe deserialization using source-generated context
-            var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
-            var modelsResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.ModelsListResponse);
+            string responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
+            ModelsListResponse? modelsResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.ModelsListResponse);
 
-            var models = modelsResponse?.Models ?? new List<GeminiModel>();
+            List<GeminiModel> models = modelsResponse?.Models ?? [];
 
             // Cache the results
             _cache.Set(CacheKey, models, _cacheExpiration);
@@ -77,9 +69,9 @@ public class ModelService : IModelService
         ModelCapability capability,
         CancellationToken cancellationToken = default)
     {
-        var allModels = await GetAvailableModelsAsync(cancellationToken);
+        IReadOnlyList<GeminiModel> allModels = await GetAvailableModelsAsync(cancellationToken);
 
-        var capabilityString = capability switch
+        string capabilityString = capability switch
         {
             ModelCapability.TextGeneration => "generateContent",
             ModelCapability.CodeGeneration => "generateCode",
@@ -98,7 +90,7 @@ public class ModelService : IModelService
         if (string.IsNullOrWhiteSpace(modelName))
             throw new ArgumentException("Model name cannot be empty", nameof(modelName));
 
-        var models = await GetAvailableModelsAsync(cancellationToken);
+        IReadOnlyList<GeminiModel> models = await GetAvailableModelsAsync(cancellationToken);
 
         return models.FirstOrDefault(m =>
             m.Name?.EndsWith(modelName, StringComparison.OrdinalIgnoreCase) == true ||
@@ -109,7 +101,7 @@ public class ModelService : IModelService
         ModelSelectionCriteria? criteria = null,
         CancellationToken cancellationToken = default)
     {
-        var models = await GetAvailableModelsAsync(cancellationToken);
+        IReadOnlyList<GeminiModel> models = await GetAvailableModelsAsync(cancellationToken);
 
         if (!models.Any())
             return null;
@@ -120,7 +112,7 @@ public class ModelService : IModelService
         IEnumerable<GeminiModel> filtered = models.Where(m => !string.IsNullOrWhiteSpace(m.Name));
 
         // Filter out known problematic models
-        var problematicModels = new[] { "learnlm", "experimental", "preview" };
+        string[] problematicModels = ["learnlm", "experimental", "preview"];
         if (criteria.PreferStable)
         {
             filtered = filtered.Where(m =>
@@ -130,7 +122,7 @@ public class ModelService : IModelService
         // Apply filters based on criteria
         if (criteria.RequiredCapability.HasValue)
         {
-            var capableModels = await GetModelsByCapabilityAsync(criteria.RequiredCapability.Value, cancellationToken);
+            IReadOnlyList<GeminiModel> capableModels = await GetModelsByCapabilityAsync(criteria.RequiredCapability.Value, cancellationToken);
             var capableModelNames = new HashSet<string>(capableModels.Select(m => m.Name).Where(n => n != null)!);
             filtered = filtered.Where(m => capableModelNames.Contains(m.Name!));
         }
