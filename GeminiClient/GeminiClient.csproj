@@ -1,28 +1,21 @@
-﻿
-<!-- GeminiClient/GeminiClient.csproj -->
+﻿<!-- GeminiClient/GeminiClient.csproj -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <UserSecretsId>2e219e2a-064a-457d-976e-4eb51c38711a</UserSecretsId>
-    
+   
     <!-- Assembly Information -->
     <AssemblyName>GeminiClient</AssemblyName>
     <RootNamespace>GeminiClient</RootNamespace>
-    
+   
     <!-- Library Configuration -->
     <IsTrimmable>true</IsTrimmable>
     <EnableTrimAnalyzer>true</EnableTrimAnalyzer>
-    
+   
     <!-- Package Information -->
     <Product>Gemini Client Library</Product>
-    <Description>Client library for Google Gemini AI API</Description>
-    <Version>0.0.6</Version>
-    <FileVersion>0.0.6.0</FileVersion>
-    <AssemblyVersion>0.0.6.0</AssemblyVersion>
+    <Description>Client library for Google Gemini AI API with streaming support</Description>
   </PropertyGroup>
-  
+ 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Http" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Logging.Configuration" Version="9.0.8" />

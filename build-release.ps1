@@ -1,8 +1,8 @@
 # build-release.ps1 - PowerShell script for local builds
 param(
     [Parameter(Mandatory=$false)]
-    [string]$Version = "0.0.6",
-    
+    [string]$Version = "", # Leave empty for auto-detection
+
     [Parameter(Mandatory=$false)]
     [string[]]$Runtimes = @("win-x64", "win-x86", "win-arm64", "linux-x64", "linux-arm64", "linux-musl-x64", "osx-x64", "osx-arm64"),
     
@@ -12,6 +12,23 @@ param(
     [Parameter(Mandatory=$false)]
     [switch]$SkipTests
 )
+
+# Auto-detect version from git tags if not provided
+if ([string]::IsNullOrEmpty($Version)) {
+    try {
+        $gitTag = git describe --tags --exact-match HEAD 2>$null
+        if ($gitTag -match '^v?(.+)$') {
+            $Version = $Matches[1]
+            Write-Host "Auto-detected version from git tag: $Version" -ForegroundColor Green
+        } else {
+            throw "No exact tag match"
+        }
+    }
+    catch {
+        Write-Host "Could not auto-detect version. Please provide -Version parameter or create a git tag." -ForegroundColor Red
+        exit 1
+    }
+}
 
 $ErrorActionPreference = "Stop"
 

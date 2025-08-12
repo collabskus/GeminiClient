@@ -2,59 +2,41 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
     <UserSecretsId>7714c600-ea4f-40d4-adc2-dd0601bd3b71</UserSecretsId>
-    
+   
     <!-- Assembly Information -->
     <AssemblyName>GeminiClientConsole</AssemblyName>
     <RootNamespace>GeminiClientConsole</RootNamespace>
-    
+   
     <!-- Publishing Configuration -->
     <PublishAot>false</PublishAot> <!-- Set to true if you want AOT compilation -->
-    <InvariantGlobalization>false</InvariantGlobalization>
-    <TrimMode>partial</TrimMode>
-    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
-    
+   
     <!-- Package Information -->
     <Product>Gemini Client Console</Product>
-    <Company>Your Company</Company>
-    <Authors>Your Name</Authors>
-    <Description>Interactive console client for Google Gemini AI API</Description>
-    <Copyright>Copyright © 2025</Copyright>
-    <Version>0.0.6</Version>
-    <FileVersion>0.0.6.0</FileVersion>
-    <AssemblyVersion>0.0.6.0</AssemblyVersion>
-    
-    <!-- Repository Information -->
-    <RepositoryUrl>https://github.com/kusl/GeminiClient</RepositoryUrl>
-    <RepositoryType>git</RepositoryType>
-    <PackageProjectUrl>https://github.com/kusl/GeminiClient</PackageProjectUrl>
-    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+    <Description>Interactive console client for Google Gemini AI API with real-time streaming</Description>
   </PropertyGroup>
-  
+ 
   <ItemGroup>
     <None Remove="appsettings.json" />
   </ItemGroup>
-  
+ 
   <ItemGroup>
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
-  
+ 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.8" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.8" />
   </ItemGroup>
-  
+ 
   <ItemGroup>
     <ProjectReference Include="..\GeminiClient\GeminiClient.csproj" />
   </ItemGroup>
-
+  
   <!-- Trimming Configuration -->
   <ItemGroup>
     <TrimmerRootAssembly Include="GeminiClientConsole" />
