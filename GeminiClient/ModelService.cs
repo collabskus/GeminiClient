@@ -1,9 +1,9 @@
 ﻿// GeminiClient/ModelService.cs (Updated for trim-safe serialization)
 using System.Text.Json;
+using GeminiClient.Models;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Caching.Memory;
-using GeminiClient.Models;
 
 namespace GeminiClient;
 
@@ -17,8 +17,8 @@ public class ModelService : IModelService
     private readonly TimeSpan _cacheExpiration = TimeSpan.FromHours(1);
 
     public ModelService(
-        HttpClient httpClient, 
-        IOptions<GeminiApiOptions> options, 
+        HttpClient httpClient,
+        IOptions<GeminiApiOptions> options,
         ILogger<ModelService> logger,
         IMemoryCache cache)
     {
@@ -40,23 +40,23 @@ public class ModelService : IModelService
         try
         {
             var requestUrl = $"{_options.BaseUrl?.TrimEnd('/')}/v1beta/models?key={_options.ApiKey}";
-            
+
             _logger.LogInformation("Fetching models list from Gemini API");
-            
+
             var response = await _httpClient.GetAsync(requestUrl, cancellationToken);
             response.EnsureSuccessStatusCode();
-            
+
             // Trim-safe deserialization using source-generated context
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
             var modelsResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.ModelsListResponse);
-            
+
             var models = modelsResponse?.Models ?? new List<GeminiModel>();
-            
+
             // Cache the results
             _cache.Set(CacheKey, models, _cacheExpiration);
-            
+
             _logger.LogInformation("Successfully fetched {Count} models", models.Count);
-            
+
             return models.AsReadOnly();
         }
         catch (HttpRequestException ex)
@@ -72,13 +72,13 @@ public class ModelService : IModelService
     }
 
     // ... rest of ModelService implementation remains the same ...
-    
+
     public async Task<IReadOnlyList<GeminiModel>> GetModelsByCapabilityAsync(
-        ModelCapability capability, 
+        ModelCapability capability,
         CancellationToken cancellationToken = default)
     {
         var allModels = await GetAvailableModelsAsync(cancellationToken);
-        
+
         var capabilityString = capability switch
         {
             ModelCapability.TextGeneration => "generateContent",
@@ -86,7 +86,7 @@ public class ModelService : IModelService
             ModelCapability.ChatCompletion => "generateContent",
             _ => throw new ArgumentException($"Unknown capability: {capability}")
         };
-        
+
         return allModels
             .Where(m => m.SupportedGenerationMethods?.Contains(capabilityString) == true)
             .ToList()
@@ -97,36 +97,36 @@ public class ModelService : IModelService
     {
         if (string.IsNullOrWhiteSpace(modelName))
             throw new ArgumentException("Model name cannot be empty", nameof(modelName));
-        
+
         var models = await GetAvailableModelsAsync(cancellationToken);
-        
-        return models.FirstOrDefault(m => 
+
+        return models.FirstOrDefault(m =>
             m.Name?.EndsWith(modelName, StringComparison.OrdinalIgnoreCase) == true ||
             m.Name?.Equals($"models/{modelName}", StringComparison.OrdinalIgnoreCase) == true);
     }
 
     public async Task<GeminiModel?> GetRecommendedModelAsync(
-        ModelSelectionCriteria? criteria = null, 
+        ModelSelectionCriteria? criteria = null,
         CancellationToken cancellationToken = default)
     {
         var models = await GetAvailableModelsAsync(cancellationToken);
-        
+
         if (!models.Any())
             return null;
-        
+
         criteria ??= ModelSelectionCriteria.Default;
-        
+
         // Filter out models with null names first (they're unusable)
         IEnumerable<GeminiModel> filtered = models.Where(m => !string.IsNullOrWhiteSpace(m.Name));
-        
+
         // Filter out known problematic models
         var problematicModels = new[] { "learnlm", "experimental", "preview" };
         if (criteria.PreferStable)
         {
-            filtered = filtered.Where(m => 
+            filtered = filtered.Where(m =>
                 !problematicModels.Any(p => m.Name!.Contains(p, StringComparison.OrdinalIgnoreCase)));
         }
-        
+
         // Apply filters based on criteria
         if (criteria.RequiredCapability.HasValue)
         {
@@ -134,43 +134,43 @@ public class ModelService : IModelService
             var capableModelNames = new HashSet<string>(capableModels.Select(m => m.Name).Where(n => n != null)!);
             filtered = filtered.Where(m => capableModelNames.Contains(m.Name!));
         }
-        
+
         if (criteria.MinInputTokens.HasValue)
         {
             filtered = filtered.Where(m => m.InputTokenLimit >= criteria.MinInputTokens.Value);
         }
-        
+
         if (criteria.MinOutputTokens.HasValue)
         {
             filtered = filtered.Where(m => m.OutputTokenLimit >= criteria.MinOutputTokens.Value);
         }
-        
+
         // Prioritize based on preference (Name is guaranteed non-null here due to initial filter)
         return criteria.Preference switch
         {
             ModelPreference.Fastest => filtered
                 .Where(m => m.Name!.Contains("flash", StringComparison.OrdinalIgnoreCase))
-                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) && 
+                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) &&
                            !m.Name!.Contains("experimental", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(m => m.Name!.Contains("2.5", StringComparison.OrdinalIgnoreCase))
                 .ThenByDescending(m => m.Name!.Contains("2.0", StringComparison.OrdinalIgnoreCase))
                 .FirstOrDefault() ?? filtered.FirstOrDefault(),
-                
+
             ModelPreference.MostCapable => filtered
-                .Where(m => m.Name!.Contains("pro", StringComparison.OrdinalIgnoreCase) || 
+                .Where(m => m.Name!.Contains("pro", StringComparison.OrdinalIgnoreCase) ||
                            m.Name!.Contains("ultra", StringComparison.OrdinalIgnoreCase))
-                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) && 
+                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) &&
                            !m.Name!.Contains("experimental", StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(m => m.InputTokenLimit)
                 .FirstOrDefault() ?? filtered.FirstOrDefault(),
-                
+
             ModelPreference.Balanced => filtered
-                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) && 
+                .Where(m => !m.Name!.Contains("preview", StringComparison.OrdinalIgnoreCase) &&
                            !m.Name!.Contains("experimental", StringComparison.OrdinalIgnoreCase))
                 .OrderBy(m => m.Name!.Contains("flash", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ThenByDescending(m => m.Name)
                 .FirstOrDefault() ?? filtered.FirstOrDefault(),
-                
+
             _ => filtered.FirstOrDefault()
         };
     }

@@ -56,19 +56,19 @@ public class GeminiApiClient : IGeminiApiClient
         {
             var jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
             using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
-            
+
             using HttpResponseMessage response = await _httpClient.PostAsync(requestUri, jsonContent, cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}", 
+                _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}",
                     response.StatusCode, errorContent);
                 _ = response.EnsureSuccessStatusCode();
             }
 
             var responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
             var geminiResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.GeminiResponse);
-            
+
             string? generatedText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
             _logger.LogInformation("Successfully received response from Gemini API.");
             return generatedText;
@@ -91,8 +91,8 @@ public class GeminiApiClient : IGeminiApiClient
     }
 
     public async IAsyncEnumerable<string> StreamGenerateContentAsync(
-        string modelName, 
-        string prompt, 
+        string modelName,
+        string prompt,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(modelName);
@@ -121,12 +121,12 @@ public class GeminiApiClient : IGeminiApiClient
 
         var jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
         using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
-        
+
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
         {
             Content = jsonContent
         };
-        
+
         // Add SSE headers
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
@@ -135,11 +135,11 @@ public class GeminiApiClient : IGeminiApiClient
         try
         {
             response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            
+
             if (!response.IsSuccessStatusCode)
             {
                 string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("Gemini API streaming request failed with status code {StatusCode}. Response: {ErrorContent}", 
+                _logger.LogError("Gemini API streaming request failed with status code {StatusCode}. Response: {ErrorContent}",
                     response.StatusCode, errorContent);
                 response.EnsureSuccessStatusCode();
             }
@@ -174,7 +174,7 @@ public class GeminiApiClient : IGeminiApiClient
                 if (line.StartsWith("data: "))
                 {
                     string jsonData = line.Substring(6); // Remove "data: " prefix
-                    
+
                     // Check for end of stream
                     if (jsonData == "[DONE]")
                         break;
@@ -191,7 +191,7 @@ public class GeminiApiClient : IGeminiApiClient
                         _logger.LogWarning(ex, "Failed to parse SSE data: {JsonData}", jsonData);
                         continue; // Skip this chunk and continue
                     }
-                    
+
                     if (!string.IsNullOrEmpty(textChunk))
                     {
                         yield return textChunk;

@@ -1,11 +1,10 @@
 ﻿// GeminiClient/ServiceCollectionExtensions.cs (Updated to avoid trimming warnings)
-using System.ComponentModel.DataAnnotations;
 using System.Diagnostics.CodeAnalysis;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace GeminiClient;
 
@@ -26,17 +25,17 @@ public static class ServiceCollectionExtensions
             options.BaseUrl = configurationSection["BaseUrl"] ?? "https://generativelanguage.googleapis.com/";
             options.DefaultModel = configurationSection["DefaultModel"];
             options.ModelPreference = configurationSection["ModelPreference"];
-            
+
             if (int.TryParse(configurationSection["TimeoutSeconds"], out var timeout))
                 options.TimeoutSeconds = timeout;
             else
                 options.TimeoutSeconds = 30;
-                
+
             if (int.TryParse(configurationSection["MaxRetries"], out var retries))
                 options.MaxRetries = retries;
             else
                 options.MaxRetries = 3;
-                
+
             if (bool.TryParse(configurationSection["EnableDetailedLogging"], out var logging))
                 options.EnableDetailedLogging = logging;
         });

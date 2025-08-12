@@ -14,7 +14,7 @@ public class ConsoleModelSelector
     {
         _geminiClient = geminiClient;
         _logger = logger;
-        
+
         // Define available models with descriptions
         _availableModels = new Dictionary<string, string>
         {
@@ -30,14 +30,14 @@ public class ConsoleModelSelector
     {
         // Show loading animation while fetching model availability
         var loadingTask = ShowModelLoadingAnimationAsync();
-        
+
         // Validate model availability in parallel (simulate API call)
         var availableModels = await ValidateModelAvailabilityAsync();
-        
+
         // Stop loading animation
         _isLoadingModels = false;
         await loadingTask;
-        
+
         // Clear loading line
         Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
 
@@ -45,7 +45,7 @@ public class ConsoleModelSelector
         Console.WriteLine("═══════════════════════════");
 
         var modelList = availableModels.ToList();
-        
+
         // Animate model list display
         for (int i = 0; i < modelList.Count; i++)
         {
@@ -59,7 +59,7 @@ public class ConsoleModelSelector
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine($" - {model.Value}");
             Console.ResetColor();
-            
+
             // Small delay for smooth animation
             await Task.Delay(50);
         }
@@ -84,7 +84,7 @@ public class ConsoleModelSelector
             }
 
             // Parse user input
-            if (int.TryParse(input.Trim(), out int selection) && 
+            if (int.TryParse(input.Trim(), out int selection) &&
                 selection >= 1 && selection <= modelList.Count)
             {
                 var selectedModel = modelList[selection - 1].Key;
@@ -121,15 +121,15 @@ public class ConsoleModelSelector
         // Simulate checking model availability with the API
         // In a real implementation, you might check which models are actually available
         await Task.Delay(1500); // Simulate API call delay
-        
+
         // For now, return the static list, but this could be dynamic
         var availableModels = new Dictionary<string, string>(_availableModels);
-        
+
         // You could add real validation here:
         // - Check quota limits
         // - Verify model accessibility
         // - Get real-time model status
-        
+
         return availableModels;
     }
 
@@ -139,7 +139,7 @@ public class ConsoleModelSelector
         var timeoutTask = Task.Delay(timeout);
 
         var completedTask = await Task.WhenAny(readTask, timeoutTask);
-        
+
         if (completedTask == timeoutTask)
         {
             Console.WriteLine("\n⏰ Selection timeout - using default model.");
@@ -154,7 +154,7 @@ public class ConsoleModelSelector
         Console.ForegroundColor = ConsoleColor.Green;
         Console.Write("✓ Selected: ");
         Console.ResetColor();
-        
+
         // Animate the model name appearing character by character
         foreach (char c in modelName)
         {
@@ -162,16 +162,16 @@ public class ConsoleModelSelector
             Console.Write(c);
             await Task.Delay(30);
         }
-        
+
         if (isDefault)
         {
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.Write(" (default)");
         }
-        
+
         Console.ResetColor();
         Console.WriteLine();
-        
+
         // Small celebration animation
         await Task.Delay(200);
         Console.ForegroundColor = ConsoleColor.Green;
@@ -183,7 +183,7 @@ public class ConsoleModelSelector
     private async Task ShowErrorMessageAsync(string message)
     {
         Console.ForegroundColor = ConsoleColor.Red;
-        
+
         // Flash the error message
         for (int i = 0; i < 3; i++)
         {
@@ -192,7 +192,7 @@ public class ConsoleModelSelector
             Console.Write("\r" + new string(' ', message.Length));
             await Task.Delay(100);
         }
-        
+
         Console.WriteLine("\r" + message);
         Console.ResetColor();
         await Task.Delay(500);
@@ -202,12 +202,12 @@ public class ConsoleModelSelector
     {
         Console.ForegroundColor = ConsoleColor.DarkCyan;
         Console.WriteLine($"🤖 Current Model: {modelName}");
-        
+
         if (_availableModels.TryGetValue(modelName, out string? description))
         {
             Console.WriteLine($"   {description}");
         }
-        
+
         Console.ResetColor();
     }
 
@@ -218,8 +218,8 @@ public class ConsoleModelSelector
 
     public string GetModelDescription(string modelName)
     {
-        return _availableModels.TryGetValue(modelName, out string? description) 
-            ? description 
+        return _availableModels.TryGetValue(modelName, out string? description)
+            ? description
             : "Unknown model";
     }
 }

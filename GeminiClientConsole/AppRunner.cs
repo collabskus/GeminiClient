@@ -1,8 +1,8 @@
 ﻿// GeminiClientConsole/AppRunner.cs (Console-specific UI component)
-using GeminiClient;
-using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text;
+using GeminiClient;
+using Microsoft.Extensions.Logging;
 
 namespace GeminiClientConsole;
 
