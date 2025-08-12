@@ -1,5 +1,4 @@
-﻿// GeminiClientConsole/AppRunner.cs (Updated with streaming support)
-using GeminiClient;
+﻿using GeminiClient;
 using GeminiClientConsole;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -14,7 +13,6 @@ public class AppRunner
     private readonly ConsoleModelSelector _modelSelector;
     private string? _selectedModel;
     private readonly List<ResponseMetrics> _sessionMetrics = new();
-    private bool _useStreaming = true; // Default to streaming
 
     public AppRunner(
         IGeminiApiClient geminiClient,
@@ -33,12 +31,9 @@ public class AppRunner
         // Select model at startup
         _selectedModel = await _modelSelector.SelectModelInteractivelyAsync();
 
-        Console.WriteLine($"\n💡 Streaming is {'ON' }: Type 'stream' to toggle, 'exit' to quit");
-
         while (true)
         {
-            var streamStatus = _useStreaming ? "🔄 ON" : "⏸️ OFF";
-            Console.WriteLine($"\n📝 Enter prompt (Stream: {streamStatus} | 'exit', 'model', 'stream', 'stats'):");
+            Console.WriteLine("\n📝 Enter prompt ('exit' to quit, 'model' to change model, 'stats' for session stats):");
             Console.Write("> ");
             string? input = Console.ReadLine();
 
@@ -52,16 +47,6 @@ public class AppRunner
             if (string.Equals(input, "model", StringComparison.OrdinalIgnoreCase))
             {
                 _selectedModel = await _modelSelector.SelectModelInteractivelyAsync();
-                continue;
-            }
-
-            if (string.Equals(input, "stream", StringComparison.OrdinalIgnoreCase))
-            {
-                _useStreaming = !_useStreaming;
-                var status = _useStreaming ? "enabled ✅" : "disabled ❌";
-                Console.ForegroundColor = _useStreaming ? ConsoleColor.Green : ConsoleColor.Yellow;
-                Console.WriteLine($"Streaming {status}");
-                Console.ResetColor();
                 continue;
             }
 
@@ -79,99 +64,10 @@ public class AppRunner
                 continue;
             }
 
-            if (_useStreaming)
-            {
-                await ProcessPromptStreamingAsync(input);
-            }
-            else
-            {
-                await ProcessPromptAsync(input);
-            }
+            await ProcessPromptAsync(input);
         }
 
         _logger.LogInformation("Application finished");
-    }
-
-    private async Task ProcessPromptStreamingAsync(string prompt)
-    {
-        try
-        {
-            // Display header
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine($"\n╭─── Streaming Response ───╮");
-            Console.ResetColor();
-            
-            var totalTimer = Stopwatch.StartNew();
-            var responseBuilder = new StringBuilder();
-            bool firstChunk = true;
-
-            await foreach (var chunk in _geminiClient.GenerateContentStreamAsync(_selectedModel!, prompt))
-            {
-                if (firstChunk)
-                {
-                    // Show that we started receiving data
-                    Console.Write(""); // Just ensure cursor is ready
-                    firstChunk = false;
-                }
-
-                // Write chunk directly to console for real-time streaming effect
-                Console.Write(chunk);
-                responseBuilder.Append(chunk);
-                
-                // Optional: Add a small delay for more natural typing effect
-                // await Task.Delay(10);
-            }
-
-            totalTimer.Stop();
-            
-            // Add final formatting
-            Console.WriteLine(); // Ensure we end on a new line
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("╰────────────────╯");
-            Console.ResetColor();
-
-            // Record metrics
-            var response = responseBuilder.ToString();
-            var metrics = new ResponseMetrics
-            {
-                Model = _selectedModel!,
-                PromptLength = prompt.Length,
-                ResponseLength = response.Length,
-                ElapsedTime = totalTimer.Elapsed,
-                Timestamp = DateTime.Now,
-                WasStreamed = true
-            };
-
-            _sessionMetrics.Add(metrics);
-
-            // Display metrics
-            int wordCount = response.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
-            double tokensPerSecond = EstimateTokens(response) / Math.Max(totalTimer.Elapsed.TotalSeconds, 0.001);
-            DisplayMetrics(metrics, wordCount, tokensPerSecond);
-        }
-        catch (HttpRequestException httpEx) when (httpEx.Message.Contains("500"))
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n❌ Server Error: The model '{_selectedModel}' is experiencing issues.");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"💡 Tip: Try switching to a different model using the 'model' command.");
-            Console.ResetColor();
-            _logger.LogError(httpEx, "Server error from Gemini streaming API");
-        }
-        catch (HttpRequestException httpEx)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n❌ Network Error: {httpEx.Message}");
-            Console.ResetColor();
-            _logger.LogError(httpEx, "HTTP error during streaming content generation");
-        }
-        catch (Exception ex)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n❌ Unexpected Error: {ex.Message}");
-            Console.ResetColor();
-            _logger.LogError(ex, "Error during streaming content generation");
-        }
     }
 
     private async Task ProcessPromptAsync(string prompt)
@@ -203,8 +99,7 @@ public class AppRunner
                     PromptLength = prompt.Length,
                     ResponseLength = result.Length,
                     ElapsedTime = totalTimer.Elapsed,
-                    Timestamp = DateTime.Now,
-                    WasStreamed = false
+                    Timestamp = DateTime.Now
                 };
 
                 _sessionMetrics.Add(metrics);
@@ -307,8 +202,7 @@ public class AppRunner
     private void DisplayMetrics(ResponseMetrics metrics, int wordCount, double tokensPerSecond)
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
-        var modeIndicator = metrics.WasStreamed ? "🔄 Streamed" : "📦 Batch";
-        Console.WriteLine($"📊 Performance Metrics ({modeIndicator}):");
+        Console.WriteLine($"📊 Performance Metrics:");
 
         // Create a simple bar chart for visual representation
         var speedBar = CreateSpeedBar(tokensPerSecond);
@@ -359,15 +253,13 @@ public class AppRunner
         Console.ResetColor();
 
         var totalRequests = _sessionMetrics.Count;
-        var streamedRequests = _sessionMetrics.Count(m => m.WasStreamed);
-        var batchRequests = totalRequests - streamedRequests;
         var avgResponseTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
         var minResponseTime = _sessionMetrics.Min(m => m.ElapsedTime);
         var maxResponseTime = _sessionMetrics.Max(m => m.ElapsedTime);
         var totalChars = _sessionMetrics.Sum(m => m.ResponseLength);
         var sessionDuration = DateTime.Now - _sessionMetrics.First().Timestamp;
 
-        Console.WriteLine($"  📊 Total Requests: {totalRequests} (🔄 {streamedRequests} streamed, 📦 {batchRequests} batch)");
+        Console.WriteLine($"  📊 Total Requests: {totalRequests}");
         Console.WriteLine($"  ⏱  Average Response: {FormatElapsedTime(avgResponseTime)}");
         Console.WriteLine($"  🚀 Fastest: {FormatElapsedTime(minResponseTime)}");
         Console.WriteLine($"  🐌 Slowest: {FormatElapsedTime(maxResponseTime)}");
@@ -424,6 +316,5 @@ public class AppRunner
         public int ResponseLength { get; set; }
         public TimeSpan ElapsedTime { get; set; }
         public DateTime Timestamp { get; set; }
-        public bool WasStreamed { get; set; }
     }
 }
