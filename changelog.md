@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Cleaned up changelog to remove extra text
+- Stream response from Gemini in server sent events
 
 ## [0.0.5] - 2025-08-09
 

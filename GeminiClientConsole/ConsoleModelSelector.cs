@@ -1,221 +1,112 @@
-﻿// GeminiClientConsole/ConsoleModelSelector.cs
-using GeminiClient; // This imports ALL the models from the library
-using Microsoft.Extensions.Configuration;
+﻿// GeminiClientConsole/ConsoleModelSelector.cs (Console-specific UI component)
+using GeminiClient;
 using Microsoft.Extensions.Logging;
 
 namespace GeminiClientConsole;
 
-/// <summary>
-/// Console-specific implementation for interactive model selection.
-/// This handles the UI/UX aspects while delegating API calls to the library's IModelService.
-/// </summary>
 public class ConsoleModelSelector
 {
-    private readonly IModelService _modelService;
-    private readonly IConfiguration _configuration;
+    private readonly IGeminiApiClient _geminiClient;
     private readonly ILogger<ConsoleModelSelector> _logger;
-    private string? _lastSelectedModel;
+    private readonly Dictionary<string, string> _availableModels;
 
-    public ConsoleModelSelector(
-        IModelService modelService,
-        IConfiguration configuration,
-        ILogger<ConsoleModelSelector> logger)
+    public ConsoleModelSelector(IGeminiApiClient geminiClient, ILogger<ConsoleModelSelector> logger)
     {
-        _modelService = modelService ?? throw new ArgumentNullException(nameof(modelService));
-        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _geminiClient = geminiClient;
+        _logger = logger;
+        
+        // Define available models with descriptions
+        _availableModels = new Dictionary<string, string>
+        {
+            { "gemini-2.5-flash", "Latest Gemini 2.5 Flash - Fast and efficient" },
+            { "gemini-2.0-flash-exp", "Experimental Gemini 2.0 Flash - Cutting edge features" },
+            { "gemini-2.0-flash", "Gemini 2.0 Flash - Balanced performance" },
+            { "gemini-1.5-pro", "Gemini 1.5 Pro - High capability model" },
+            { "gemini-1.5-flash", "Gemini 1.5 Flash - Fast and reliable" }
+        };
     }
 
     public async Task<string> SelectModelInteractivelyAsync()
     {
-        try
+        Console.WriteLine("\n🤖 Available Gemini Models:");
+        Console.WriteLine("═══════════════════════════");
+
+        var modelList = _availableModels.ToList();
+        for (int i = 0; i < modelList.Count; i++)
         {
-            // Get available models from the library service
-            var models = await _modelService.GetModelsByCapabilityAsync(ModelCapability.TextGeneration);
-
-            if (!models.Any())
-            {
-                _logger.LogWarning("No models available, using fallback");
-                return GetFallbackModel();
-            }
-
-            // Get recommended default from library
-            var criteria = GetSelectionCriteriaFromConfig();
-            var recommendedModel = await _modelService.GetRecommendedModelAsync(criteria);
-
-            // Present choices to user (console-specific UI)
-            return await PromptUserForSelection(models.ToList(), recommendedModel);
+            var model = modelList[i];
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.Write($"  [{i + 1}] ");
+            Console.ResetColor();
+            Console.ForegroundColor = ConsoleColor.White;
+            Console.Write(model.Key);
+            Console.ResetColor();
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine($" - {model.Value}");
+            Console.ResetColor();
         }
-        catch (GeminiApiException ex)
-        {
-            _logger.LogError(ex, "Failed to fetch models, using fallback");
-            Console.WriteLine($"Warning: Could not fetch available models. Using default.");
-            return GetFallbackModel();
-        }
-    }
-
-    private ModelSelectionCriteria GetSelectionCriteriaFromConfig()
-    {
-        var preference = _configuration["GeminiSettings:ModelPreference"];
-
-        return new ModelSelectionCriteria
-        {
-            Preference = Enum.TryParse<ModelPreference>(preference, out var pref)
-                ? pref
-                : ModelPreference.Fastest,
-            RequiredCapability = ModelCapability.TextGeneration
-        };
-    }
-
-    private Task<string> PromptUserForSelection(List<GeminiClient.GeminiModel> models, GeminiClient.GeminiModel? recommendedModel)
-    {
-        // Replace Console.Clear() with visual separation:
-        Console.WriteLine(); // Add blank line for separation
-        Console.WriteLine(new string('═', Console.WindowWidth > 0 ? Math.Min(Console.WindowWidth - 1, 80) : 60));
-        ConsoleHelper.PrintHeader("Available Gemini Models");
-
-        // Display models with formatting
-        for (int i = 0; i < models.Count; i++)
-        {
-            var model = models[i];
-            var isRecommended = recommendedModel != null && model.Name == recommendedModel.Name;
-            var isLastUsed = _lastSelectedModel != null && model.GetModelIdentifier() == _lastSelectedModel;
-
-            ConsoleHelper.PrintModelOption(i + 1, model, isRecommended, isLastUsed);
-        }
-
-        Console.WriteLine("\n" + new string('─', 60));
-        Console.WriteLine("Enter selection (number), or press Enter for recommended:");
 
         while (true)
         {
-            var input = Console.ReadLine();
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.Write($"Select a model (1-{modelList.Count}) or press Enter for default [{modelList[0].Key}]: ");
+            Console.ResetColor();
 
-            // Use recommended if Enter pressed
+            string? input = Console.ReadLine();
+
+            // Default selection (first model)
             if (string.IsNullOrWhiteSpace(input))
             {
-                if (recommendedModel != null)
-                {
-                    var modelId = recommendedModel.GetModelIdentifier();
-                    _lastSelectedModel = modelId;
-                    ConsoleHelper.PrintSelection(recommendedModel);
-                    return Task.FromResult(modelId);
-                }
-
-                Console.WriteLine("No recommended model. Please enter a number:");
-                continue;
+                var defaultModel = modelList[0].Key;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✓ Selected: {defaultModel}");
+                Console.ResetColor();
+                _logger.LogInformation("Model selected: {Model} (default)", defaultModel);
+                return defaultModel;
             }
 
-            // Parse user selection
-            if (int.TryParse(input, out int selection) && selection >= 1 && selection <= models.Count)
+            // Parse user input
+            if (int.TryParse(input.Trim(), out int selection) && 
+                selection >= 1 && selection <= modelList.Count)
             {
-                var selected = models[selection - 1];
-                var modelId = selected.GetModelIdentifier();
-                _lastSelectedModel = modelId;
-                ConsoleHelper.PrintSelection(selected);
-                return Task.FromResult(modelId);
+                var selectedModel = modelList[selection - 1].Key;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✓ Selected: {selectedModel}");
+                Console.ResetColor();
+                _logger.LogInformation("Model selected: {Model}", selectedModel);
+                return selectedModel;
             }
 
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"Invalid input. Please enter 1-{models.Count} or press Enter:");
+            // Invalid input
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"❌ Invalid selection. Please choose a number between 1 and {modelList.Count}.");
             Console.ResetColor();
         }
     }
 
-    private string GetFallbackModel()
+    public void DisplayCurrentModel(string modelName)
     {
-        // Check config -> environment -> hardcoded
-        return _configuration["GeminiSettings:DefaultModel"]
-            ?? Environment.GetEnvironmentVariable("GEMINI_DEFAULT_MODEL")
-            ?? "gemini-2.5-flash";
-    }
-}
-
-/// <summary>
-/// Helper class for console formatting
-/// </summary>
-public static class ConsoleHelper
-{
-    public static void PrintHeader(string title)
-    {
-        Console.ForegroundColor = ConsoleColor.Cyan;
-        Console.WriteLine($"\n╔═══ {title} ═══╗");
-        Console.ResetColor();
-    }
-
-    public static void PrintModelOption(int number, GeminiClient.GeminiModel model, bool isRecommended, bool isLastUsed)
-    {
-        // Build status indicators
-        var indicators = new List<string>();
-        if (isRecommended) indicators.Add("RECOMMENDED");
-        if (isLastUsed) indicators.Add("LAST USED");
-        var indicatorText = indicators.Any() ? $" [{string.Join(", ", indicators)}]" : "";
-
-        // Determine model type for coloring
-        var modelType = GetModelType(model.Name);
-        var (color, icon) = modelType switch
+        Console.ForegroundColor = ConsoleColor.DarkCyan;
+        Console.WriteLine($"🤖 Current Model: {modelName}");
+        
+        if (_availableModels.TryGetValue(modelName, out string? description))
         {
-            "flash" => (ConsoleColor.Yellow, "⚡"),
-            "pro" => (ConsoleColor.Magenta, "💎"),
-            "ultra" => (ConsoleColor.Red, "🚀"),
-            _ => (ConsoleColor.Gray, "📝")
-        };
-
-        // Print model info
-        Console.ForegroundColor = color;
-        Console.Write($"  {number,2}. {icon} ");
-        Console.ForegroundColor = ConsoleColor.White;
-        Console.Write($"{model.DisplayName ?? model.GetModelIdentifier()}");
-
-        if (!string.IsNullOrEmpty(indicatorText))
-        {
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write(indicatorText);
+            Console.WriteLine($"   {description}");
         }
-
-        Console.ResetColor();
-        Console.WriteLine();
-
-        // Print details in gray
-        Console.ForegroundColor = ConsoleColor.DarkGray;
-        if (!string.IsNullOrWhiteSpace(model.Description))
-        {
-            Console.WriteLine($"      {TruncateString(model.Description, 60)}");
-        }
-
-        if (model.InputTokenLimit.HasValue || model.OutputTokenLimit.HasValue)
-        {
-            Console.WriteLine($"      Tokens: Input {model.InputTokenLimit:N0} | Output {model.OutputTokenLimit:N0}");
-        }
-
+        
         Console.ResetColor();
     }
 
-    public static void PrintSelection(GeminiClient.GeminiModel model)
+    public List<string> GetAvailableModels()
     {
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"\n✓ Selected: {model.DisplayName ?? model.GetModelIdentifier()}");
-        Console.ResetColor();
-        Thread.Sleep(500); // Brief pause for user feedback
+        return _availableModels.Keys.ToList();
     }
 
-    private static string GetModelType(string? modelName)
+    public string GetModelDescription(string modelName)
     {
-        if (string.IsNullOrWhiteSpace(modelName))
-            return "unknown";
-
-        modelName = modelName.ToLowerInvariant();
-
-        if (modelName.Contains("flash")) return "flash";
-        if (modelName.Contains("pro")) return "pro";
-        if (modelName.Contains("ultra")) return "ultra";
-        return "standard";
-    }
-
-    private static string TruncateString(string text, int maxLength)
-    {
-        if (text.Length <= maxLength)
-            return text;
-        return text.Substring(0, maxLength - 3) + "...";
+        return _availableModels.TryGetValue(modelName, out string? description) 
+            ? description 
+            : "Unknown model";
     }
 }

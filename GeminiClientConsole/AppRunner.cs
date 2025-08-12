@@ -1,5 +1,5 @@
-﻿using GeminiClient;
-using GeminiClientConsole;
+﻿// GeminiClientConsole/AppRunner.cs (Console-specific UI component)
+using GeminiClient;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.Text;
@@ -13,6 +13,7 @@ public class AppRunner
     private readonly ConsoleModelSelector _modelSelector;
     private string? _selectedModel;
     private readonly List<ResponseMetrics> _sessionMetrics = new();
+    private bool _streamingEnabled = true; // Default to streaming
 
     public AppRunner(
         IGeminiApiClient geminiClient,
@@ -33,7 +34,7 @@ public class AppRunner
 
         while (true)
         {
-            Console.WriteLine("\n📝 Enter prompt ('exit' to quit, 'model' to change model, 'stats' for session stats):");
+            Console.WriteLine($"\n📝 Enter prompt ('exit' to quit, 'model' to change model, 'stats' for session stats, 'stream' to toggle streaming: {(_streamingEnabled ? "ON" : "OFF")}):");
             Console.Write("> ");
             string? input = Console.ReadLine();
 
@@ -56,6 +57,15 @@ public class AppRunner
                 continue;
             }
 
+            if (string.Equals(input, "stream", StringComparison.OrdinalIgnoreCase))
+            {
+                _streamingEnabled = !_streamingEnabled;
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✓ Streaming {(_streamingEnabled ? "enabled" : "disabled")}");
+                Console.ResetColor();
+                continue;
+            }
+
             if (string.IsNullOrWhiteSpace(input))
             {
                 Console.ForegroundColor = ConsoleColor.Yellow;
@@ -64,10 +74,100 @@ public class AppRunner
                 continue;
             }
 
-            await ProcessPromptAsync(input);
+            if (_streamingEnabled)
+            {
+                await ProcessPromptStreamingAsync(input);
+            }
+            else
+            {
+                await ProcessPromptAsync(input);
+            }
         }
 
         _logger.LogInformation("Application finished");
+    }
+
+    private async Task ProcessPromptStreamingAsync(string prompt)
+    {
+        try
+        {
+            // Display response header
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine($"\n╭─── Streaming Response ───╮");
+            Console.ResetColor();
+
+            var totalTimer = Stopwatch.StartNew();
+            var responseBuilder = new StringBuilder();
+            var firstChunkReceived = false;
+
+            await foreach (string chunk in _geminiClient.StreamGenerateContentAsync(_selectedModel!, prompt))
+            {
+                if (!firstChunkReceived)
+                {
+                    firstChunkReceived = true;
+                    // Display first chunk timing
+                    Console.ForegroundColor = ConsoleColor.DarkGreen;
+                    Console.WriteLine($"⚡ First response: {totalTimer.ElapsedMilliseconds}ms");
+                    Console.ResetColor();
+                    Console.WriteLine(); // Add some spacing
+                }
+
+                // Write chunk immediately to console
+                Console.Write(chunk);
+                responseBuilder.Append(chunk);
+            }
+
+            totalTimer.Stop();
+
+            // Add some spacing after the response
+            Console.WriteLine();
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("╰────────────────╯");
+            Console.ResetColor();
+
+            // Calculate and store metrics
+            var completeResponse = responseBuilder.ToString();
+            var metrics = new ResponseMetrics
+            {
+                Model = _selectedModel!,
+                PromptLength = prompt.Length,
+                ResponseLength = completeResponse.Length,
+                ElapsedTime = totalTimer.Elapsed,
+                Timestamp = DateTime.Now
+            };
+
+            _sessionMetrics.Add(metrics);
+
+            // Display performance metrics for streaming
+            DisplayStreamingMetrics(metrics, completeResponse);
+        }
+        catch (HttpRequestException httpEx) when (httpEx.Message.Contains("500"))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"\n❌ Server Error: The model '{_selectedModel}' is experiencing issues.");
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"💡 Tip: Try switching to a different model using the 'model' command.");
+            Console.WriteLine($"   Recommended stable models: gemini-2.5-flash, gemini-2.0-flash");
+            Console.ResetColor();
+
+            _logger.LogError(httpEx, "Server error from Gemini API");
+        }
+        catch (HttpRequestException httpEx)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"\n❌ Network Error: {httpEx.Message}");
+            Console.ResetColor();
+
+            _logger.LogError(httpEx, "HTTP error during content generation");
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"\n❌ Unexpected Error: {ex.Message}");
+            Console.ResetColor();
+
+            _logger.LogError(ex, "Error during content generation");
+        }
     }
 
     private async Task ProcessPromptAsync(string prompt)
@@ -199,6 +299,32 @@ public class AppRunner
         DisplayMetrics(metrics, wordCount, tokensPerSecond);
     }
 
+    private void DisplayStreamingMetrics(ResponseMetrics metrics, string response)
+    {
+        int wordCount = response.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        double tokensPerSecond = EstimateTokens(response) / Math.Max(metrics.ElapsedTime.TotalSeconds, 0.001);
+
+        Console.ForegroundColor = ConsoleColor.DarkGray;
+        Console.WriteLine($"📊 Streaming Performance Metrics:");
+
+        var speedBar = CreateSpeedBar(tokensPerSecond);
+
+        Console.WriteLine($"   └─ Total Time: {FormatElapsedTime(metrics.ElapsedTime)}");
+        Console.WriteLine($"   └─ Words: {wordCount} | Characters: {metrics.ResponseLength:N0}");
+        Console.WriteLine($"   └─ Est. Tokens: ~{EstimateTokens(metrics.ResponseLength)} | Speed: {tokensPerSecond:F1} tokens/s {speedBar}");
+        Console.WriteLine($"   └─ Mode: 🌊 Streaming (real-time)");
+
+        // Compare with session average if we have enough data
+        if (_sessionMetrics.Count > 1)
+        {
+            var avgTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
+            var comparison = metrics.ElapsedTime < avgTime ? "🟢 faster" : "🔴 slower";
+            Console.WriteLine($"   └─ Session Avg: {FormatElapsedTime(avgTime)} ({comparison})");
+        }
+
+        Console.ResetColor();
+    }
+
     private void DisplayMetrics(ResponseMetrics metrics, int wordCount, double tokensPerSecond)
     {
         Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -265,6 +391,7 @@ public class AppRunner
         Console.WriteLine($"  🐌 Slowest: {FormatElapsedTime(maxResponseTime)}");
         Console.WriteLine($"  📝 Total Output: {totalChars:N0} characters");
         Console.WriteLine($"  ⏰ Session Duration: {FormatElapsedTime(sessionDuration)}");
+        Console.WriteLine($"  🌊 Streaming: {(_streamingEnabled ? "Enabled" : "Disabled")}");
 
         // Show model usage breakdown
         var modelUsage = _sessionMetrics.GroupBy(m => m.Model)
