@@ -1,5 +1,5 @@
 ﻿// GeminiClient/Models/ModelSelectionCriteria.cs
-namespace GeminiClient;
+namespace GeminiClient.Models;
 
 public class ModelSelectionCriteria
 {

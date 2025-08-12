@@ -1,7 +1,7 @@
 ﻿// GeminiClient/Models/GeminiModel.cs
 using System.Text.Json.Serialization;
 
-namespace GeminiClient;
+namespace GeminiClient.Models;
 
 public class GeminiModel
 {

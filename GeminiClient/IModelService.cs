@@ -1,4 +1,6 @@
 ﻿// GeminiClient/IModelService.cs
+using GeminiClient.Models;
+
 namespace GeminiClient;
 
 public interface IModelService
