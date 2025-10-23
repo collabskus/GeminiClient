@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Update to dotnet 10 (pre release)
+- Fix defects as pointed out by Claude 
+- Implement logging for conversations 
+
 ## [0.0.6] - 2025-08-09
 
 - Cleaned up changelog to remove extra text

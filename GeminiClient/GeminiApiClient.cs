@@ -1,4 +1,4 @@
-﻿// GeminiClient/GeminiApiClient.cs (Updated for streaming support)
+﻿// GeminiClient/GeminiApiClient.cs
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -29,6 +29,9 @@ public class GeminiApiClient : IGeminiApiClient
         {
             throw new ArgumentException("BaseUrl is missing in GeminiApiOptions.");
         }
+
+        // Configure timeout from options
+        _httpClient.Timeout = TimeSpan.FromSeconds(_options.TimeoutSeconds);
     }
 
     public async Task<string?> GenerateContentAsync(string modelName, string prompt, CancellationToken cancellationToken = default)
@@ -50,7 +53,7 @@ public class GeminiApiClient : IGeminiApiClient
             Contents = [new Content { Parts = [new Part { Text = prompt }] }]
         };
 
-        _logger.LogInformation("Sending request to Gemini API: {Uri}", requestUri);
+        _logger.LogInformation("Sending request to Gemini API: {Uri}", requestUri.GetLeftPart(UriPartial.Path));
 
         try
         {
@@ -63,30 +66,50 @@ public class GeminiApiClient : IGeminiApiClient
                 string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}",
                     response.StatusCode, errorContent);
-                _ = response.EnsureSuccessStatusCode();
+
+                // Throw more specific exception with status code
+                throw new GeminiApiException($"API request failed with status {response.StatusCode}: {errorContent}");
             }
 
             string responseJson = await response.Content.ReadAsStringAsync(cancellationToken);
             GeminiResponse? geminiResponse = JsonSerializer.Deserialize(responseJson, GeminiJsonContext.Default.GeminiResponse);
 
             string? generatedText = geminiResponse?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
-            _logger.LogInformation("Successfully received response from Gemini API.");
+
+            if (string.IsNullOrEmpty(generatedText))
+            {
+                _logger.LogWarning("Received empty response from Gemini API");
+            }
+            else
+            {
+                _logger.LogInformation("Successfully received response from Gemini API.");
+            }
+
             return generatedText;
         }
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "HTTP request error calling Gemini API.");
-            throw;
+            throw new GeminiApiException("Failed to communicate with Gemini API", ex);
         }
         catch (JsonException ex)
         {
             _logger.LogError(ex, "Error deserializing Gemini API response.");
-            throw new InvalidOperationException("Failed to deserialize Gemini API response.", ex);
+            throw new GeminiApiException("Failed to deserialize Gemini API response.", ex);
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Gemini API request was cancelled or timed out.");
+            throw new GeminiApiException("Request was cancelled or timed out.", ex);
+        }
+        catch (GeminiApiException)
+        {
+            throw; // Re-throw our custom exceptions
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unexpected error occurred while calling Gemini API.");
-            throw;
+            throw new GeminiApiException("An unexpected error occurred.", ex);
         }
     }
 
@@ -103,7 +126,7 @@ public class GeminiApiClient : IGeminiApiClient
         var uriBuilder = new UriBuilder(_httpClient.BaseAddress!)
         {
             Path = path,
-            Query = $"key={HttpUtility.UrlEncode(apiKey)}&alt=sse" // Request SSE format
+            Query = $"key={HttpUtility.UrlEncode(apiKey)}&alt=sse"
         };
         Uri requestUri = uriBuilder.Uri;
 
@@ -112,25 +135,23 @@ public class GeminiApiClient : IGeminiApiClient
             Contents = [new Content { Parts = [new Part { Text = prompt }] }]
         };
 
-        _logger.LogInformation("Sending streaming request to Gemini API: {Uri}", requestUri);
-
-        // Setup the request - handle errors before yielding
-        HttpResponseMessage response;
-        Stream stream;
-        StreamReader reader;
+        _logger.LogInformation("Sending streaming request to Gemini API: {Uri}", requestUri.GetLeftPart(UriPartial.Path));
 
         string jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
-        using var jsonContent = new StringContent(jsonString, Encoding.UTF8, "application/json");
 
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
         {
-            Content = jsonContent
+            Content = new StringContent(jsonString, Encoding.UTF8, "application/json")
         };
 
         // Add SSE headers
         request.Headers.Accept.Clear();
         request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
         request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
+
+        HttpResponseMessage? response = null;
+        Stream? stream = null;
+        StreamReader? reader = null;
 
         try
         {
@@ -141,31 +162,18 @@ public class GeminiApiClient : IGeminiApiClient
                 string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
                 _logger.LogError("Gemini API streaming request failed with status code {StatusCode}. Response: {ErrorContent}",
                     response.StatusCode, errorContent);
-                response.EnsureSuccessStatusCode();
+                throw new GeminiApiException($"Streaming request failed with status {response.StatusCode}: {errorContent}");
             }
 
             stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            reader = new StreamReader(stream);
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "HTTP request error calling Gemini API streaming endpoint.");
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An unexpected error occurred while streaming from Gemini API.");
-            throw;
-        }
+            reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: false);
 
-        // Process SSE stream - no try-catch around yield statements
-        using (response)
-        using (stream)
-        using (reader)
-        {
             string? line;
             while ((line = await reader.ReadLineAsync(cancellationToken)) != null)
             {
+                // Check cancellation before processing each line
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Skip empty lines and comments
                 if (string.IsNullOrWhiteSpace(line) || line.StartsWith(':'))
                     continue;
@@ -173,7 +181,7 @@ public class GeminiApiClient : IGeminiApiClient
                 // Parse SSE format: "data: {json}"
                 if (line.StartsWith("data: "))
                 {
-                    string jsonData = line.Substring(6); // Remove "data: " prefix
+                    string jsonData = line.Substring(6);
 
                     // Check for end of stream
                     if (jsonData == "[DONE]")
@@ -189,7 +197,7 @@ public class GeminiApiClient : IGeminiApiClient
                     catch (JsonException ex)
                     {
                         _logger.LogWarning(ex, "Failed to parse SSE data: {JsonData}", jsonData);
-                        continue; // Skip this chunk and continue
+                        continue;
                     }
 
                     if (!string.IsNullOrEmpty(textChunk))
@@ -198,8 +206,34 @@ public class GeminiApiClient : IGeminiApiClient
                     }
                 }
             }
-        }
 
-        _logger.LogInformation("Successfully completed streaming from Gemini API.");
+            _logger.LogInformation("Successfully completed streaming from Gemini API.");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP request error calling Gemini API streaming endpoint.");
+            throw new GeminiApiException("Failed to establish streaming connection.", ex);
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Streaming request was cancelled.");
+            throw new GeminiApiException("Streaming was cancelled.", ex);
+        }
+        catch (GeminiApiException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "An unexpected error occurred while streaming from Gemini API.");
+            throw new GeminiApiException("An unexpected streaming error occurred.", ex);
+        }
+        finally
+        {
+            // Proper cleanup
+            reader?.Dispose();
+            stream?.Dispose();
+            response?.Dispose();
+        }
     }
 }

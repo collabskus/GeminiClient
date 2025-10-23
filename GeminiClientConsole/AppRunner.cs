@@ -1,4 +1,4 @@
-﻿// GeminiClientConsole/AppRunner.cs (Console-specific UI component)
+﻿// GeminiClientConsole/AppRunner.cs (Updated with conversation logging)
 using System.Diagnostics;
 using System.Text;
 using GeminiClient;
@@ -6,33 +6,50 @@ using Microsoft.Extensions.Logging;
 
 namespace GeminiClientConsole;
 
-public class AppRunner(
-    IGeminiApiClient geminiClient,
-    ILogger<AppRunner> logger,
-    ConsoleModelSelector modelSelector)
+public class AppRunner : IDisposable
 {
-    private readonly IGeminiApiClient _geminiClient = geminiClient;
-    private readonly ILogger<AppRunner> _logger = logger;
-    private readonly ConsoleModelSelector _modelSelector = modelSelector;
+    private readonly IGeminiApiClient _geminiClient;
+    private readonly ILogger<AppRunner> _logger;
+    private readonly ConsoleModelSelector _modelSelector;
+    private readonly ConversationLogger _conversationLogger;
     private string? _selectedModel;
     private readonly List<ResponseMetrics> _sessionMetrics = [];
-    private bool _streamingEnabled = true; // Default to streaming
+    private bool _streamingEnabled = true;
+    private bool _disposed;
+
+    public AppRunner(
+        IGeminiApiClient geminiClient,
+        ILogger<AppRunner> logger,
+        ConsoleModelSelector modelSelector)
+    {
+        _geminiClient = geminiClient;
+        _logger = logger;
+        _modelSelector = modelSelector;
+        _conversationLogger = new ConversationLogger();
+    }
 
     public async Task RunAsync()
     {
         _logger.LogInformation("Application starting...");
+
+        // Display log file location
+        Console.ForegroundColor = ConsoleColor.DarkCyan;
+        Console.WriteLine($"📝 Conversation log: {_conversationLogger.GetLogFilePath()}");
+        Console.ResetColor();
+        Console.WriteLine();
 
         // Select model at startup
         _selectedModel = await _modelSelector.SelectModelInteractivelyAsync();
 
         while (true)
         {
-            Console.WriteLine($"\n📝 Enter prompt ('exit' to quit, 'model' to change model, 'stats' for session stats, 'stream' to toggle streaming: {(_streamingEnabled ? "ON" : "OFF")}):");
+            Console.WriteLine($"\n📝 Enter prompt ('exit' to quit, 'model' to change model, 'stats' for session stats, 'stream' to toggle streaming: {(_streamingEnabled ? "ON" : "OFF")}, 'log' to open log folder):");
             Console.Write("> ");
             string? input = Console.ReadLine();
 
             if (string.Equals(input, "exit", StringComparison.OrdinalIgnoreCase))
             {
+                _conversationLogger.LogCommand("exit");
                 DisplaySessionSummary();
                 Console.WriteLine("\nGoodbye! 👋");
                 break;
@@ -40,12 +57,14 @@ public class AppRunner(
 
             if (string.Equals(input, "model", StringComparison.OrdinalIgnoreCase))
             {
+                _conversationLogger.LogCommand("model");
                 _selectedModel = await _modelSelector.SelectModelInteractivelyAsync();
                 continue;
             }
 
             if (string.Equals(input, "stats", StringComparison.OrdinalIgnoreCase))
             {
+                _conversationLogger.LogCommand("stats");
                 DisplaySessionSummary();
                 continue;
             }
@@ -53,9 +72,17 @@ public class AppRunner(
             if (string.Equals(input, "stream", StringComparison.OrdinalIgnoreCase))
             {
                 _streamingEnabled = !_streamingEnabled;
+                _conversationLogger.LogCommand($"stream ({(_streamingEnabled ? "enabled" : "disabled")})");
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine($"✓ Streaming {(_streamingEnabled ? "enabled" : "disabled")}");
                 Console.ResetColor();
+                continue;
+            }
+
+            if (string.Equals(input, "log", StringComparison.OrdinalIgnoreCase))
+            {
+                _conversationLogger.LogCommand("log");
+                OpenLogFolder();
                 continue;
             }
 
@@ -80,11 +107,45 @@ public class AppRunner(
         _logger.LogInformation("Application finished");
     }
 
-    private async Task ProcessPromptStreamingAsync(string prompt)
+    private void OpenLogFolder()
     {
         try
         {
-            // Display response header
+            string logDirectory = _conversationLogger.GetLogDirectory();
+            
+            if (OperatingSystem.IsWindows())
+            {
+                Process.Start("explorer.exe", logDirectory);
+            }
+            else if (OperatingSystem.IsMacOS())
+            {
+                Process.Start("open", logDirectory);
+            }
+            else if (OperatingSystem.IsLinux())
+            {
+                Process.Start("xdg-open", logDirectory);
+            }
+            
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine($"✓ Opened log folder: {logDirectory}");
+            Console.ResetColor();
+        }
+        catch (Exception ex)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"⚠ Could not open folder: {ex.Message}");
+            Console.WriteLine($"📁 Log location: {_conversationLogger.GetLogDirectory()}");
+            Console.ResetColor();
+        }
+    }
+
+    private async Task ProcessPromptStreamingAsync(string prompt)
+    {
+        // Log the prompt
+        _conversationLogger.LogPrompt(prompt, _selectedModel!, isStreaming: true);
+
+        try
+        {
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine($"\n╭─── Streaming Response ───╮");
             Console.ResetColor();
@@ -98,28 +159,28 @@ public class AppRunner(
                 if (!firstChunkReceived)
                 {
                     firstChunkReceived = true;
-                    // Display first chunk timing
                     Console.ForegroundColor = ConsoleColor.DarkGreen;
                     Console.WriteLine($"⚡ First response: {totalTimer.ElapsedMilliseconds}ms");
                     Console.ResetColor();
-                    Console.WriteLine(); // Add some spacing
+                    Console.WriteLine();
                 }
 
-                // Write chunk immediately to console
                 Console.Write(chunk);
                 responseBuilder.Append(chunk);
             }
 
             totalTimer.Stop();
 
-            // Add some spacing after the response
             Console.WriteLine();
             Console.ForegroundColor = ConsoleColor.Cyan;
             Console.WriteLine("╰────────────────╯");
             Console.ResetColor();
 
-            // Calculate and store metrics
             string completeResponse = responseBuilder.ToString();
+            
+            // Log the response
+            _conversationLogger.LogResponse(completeResponse, totalTimer.Elapsed, _selectedModel!);
+
             var metrics = new ResponseMetrics
             {
                 Model = _selectedModel!,
@@ -130,62 +191,40 @@ public class AppRunner(
             };
 
             _sessionMetrics.Add(metrics);
-
-            // Display performance metrics for streaming
             DisplayStreamingMetrics(metrics, completeResponse);
-        }
-        catch (HttpRequestException httpEx) when (httpEx.Message.Contains("500"))
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n❌ Server Error: The model '{_selectedModel}' is experiencing issues.");
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"💡 Tip: Try switching to a different model using the 'model' command.");
-            Console.WriteLine($"   Recommended stable models: gemini-2.5-flash, gemini-2.0-flash");
-            Console.ResetColor();
-
-            _logger.LogError(httpEx, "Server error from Gemini API");
-        }
-        catch (HttpRequestException httpEx)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n❌ Network Error: {httpEx.Message}");
-            Console.ResetColor();
-
-            _logger.LogError(httpEx, "HTTP error during content generation");
         }
         catch (Exception ex)
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"\n❌ Unexpected Error: {ex.Message}");
-            Console.ResetColor();
-
-            _logger.LogError(ex, "Error during content generation");
+            // Log the error
+            _conversationLogger.LogError(ex, _selectedModel!, prompt);
+            HandleException(ex);
         }
     }
 
     private async Task ProcessPromptAsync(string prompt)
     {
+        // Log the prompt
+        _conversationLogger.LogPrompt(prompt, _selectedModel!, isStreaming: false);
+
         Task? animationTask = null;
         try
         {
-            // Display sending message with animation
             animationTask = ShowProgressAnimation();
-
-            // Start timing
             var totalTimer = Stopwatch.StartNew();
 
             string? result = await _geminiClient.GenerateContentAsync(_selectedModel!, prompt);
 
-            // Stop timing and animation
             totalTimer.Stop();
             _isAnimating = false;
             if (animationTask != null) await animationTask;
 
-            // Clear the animation line
             Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
 
             if (result != null)
             {
+                // Log the response
+                _conversationLogger.LogResponse(result, totalTimer.Elapsed, _selectedModel!);
+
                 var metrics = new ResponseMetrics
                 {
                     Model = _selectedModel!,
@@ -196,7 +235,6 @@ public class AppRunner(
                 };
 
                 _sessionMetrics.Add(metrics);
-
                 DisplayResponse(result, metrics);
             }
             else
@@ -206,13 +244,23 @@ public class AppRunner(
                 Console.ResetColor();
             }
         }
-        catch (HttpRequestException httpEx) when (httpEx.Message.Contains("500"))
+        catch (Exception ex)
         {
-            // Stop animation immediately
+            // Log the error
+            _conversationLogger.LogError(ex, _selectedModel!, prompt);
+            
             _isAnimating = false;
             if (animationTask != null) await animationTask;
             Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
 
+            HandleException(ex);
+        }
+    }
+
+    private void HandleException(Exception ex)
+    {
+        if (ex is HttpRequestException httpEx && httpEx.Message.Contains("500"))
+        {
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"❌ Server Error: The model '{_selectedModel}' is experiencing issues.");
             Console.ForegroundColor = ConsoleColor.Yellow;
@@ -222,26 +270,16 @@ public class AppRunner(
 
             _logger.LogError(httpEx, "Server error from Gemini API");
         }
-        catch (HttpRequestException httpEx)
+        else if (ex is HttpRequestException)
         {
-            // Stop animation immediately
-            _isAnimating = false;
-            if (animationTask != null) await animationTask;
-            Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
-
             Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"❌ Network Error: {httpEx.Message}");
+            Console.WriteLine($"❌ Network Error: {ex.Message}");
             Console.ResetColor();
 
-            _logger.LogError(httpEx, "HTTP error during content generation");
+            _logger.LogError(ex, "HTTP error during content generation");
         }
-        catch (Exception ex)
+        else
         {
-            // Stop animation immediately
-            _isAnimating = false;
-            if (animationTask != null) await animationTask;
-            Console.Write("\r" + new string(' ', Console.WindowWidth - 1) + "\r");
-
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"❌ Unexpected Error: {ex.Message}");
             Console.ResetColor();
@@ -272,23 +310,19 @@ public class AppRunner(
 
     private void DisplayResponse(string response, ResponseMetrics metrics)
     {
-        // Calculate metrics
         int wordCount = response.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
         double tokensPerSecond = EstimateTokens(response) / Math.Max(metrics.ElapsedTime.TotalSeconds, 0.001);
 
-        // Display response header with timing
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine($"\n╭─── Response ─── ⏱ {FormatElapsedTime(metrics.ElapsedTime)} ───╮");
         Console.ResetColor();
 
-        // Display the actual response
         Console.WriteLine(response);
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("╰────────────────╯");
         Console.ResetColor();
 
-        // Display performance metrics
         DisplayMetrics(metrics, wordCount, tokensPerSecond);
     }
 
@@ -307,7 +341,6 @@ public class AppRunner(
         Console.WriteLine($"   └─ Est. Tokens: ~{EstimateTokens(metrics.ResponseLength)} | Speed: {tokensPerSecond:F1} tokens/s {speedBar}");
         Console.WriteLine($"   └─ Mode: 🌊 Streaming (real-time)");
 
-        // Compare with session average if we have enough data
         if (_sessionMetrics.Count > 1)
         {
             var avgTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
@@ -323,14 +356,12 @@ public class AppRunner(
         Console.ForegroundColor = ConsoleColor.DarkGray;
         Console.WriteLine($"📊 Performance Metrics:");
 
-        // Create a simple bar chart for visual representation
         string speedBar = CreateSpeedBar(tokensPerSecond);
 
         Console.WriteLine($"   └─ Response Time: {FormatElapsedTime(metrics.ElapsedTime)}");
         Console.WriteLine($"   └─ Words: {wordCount} | Characters: {metrics.ResponseLength:N0}");
         Console.WriteLine($"   └─ Est. Tokens: ~{EstimateTokens(metrics.ResponseLength)} | Speed: {tokensPerSecond:F1} tokens/s {speedBar}");
 
-        // Compare with session average if we have enough data
         if (_sessionMetrics.Count > 1)
         {
             var avgTime = TimeSpan.FromMilliseconds(_sessionMetrics.Average(m => m.ElapsedTime.TotalMilliseconds));
@@ -343,7 +374,6 @@ public class AppRunner(
 
     private static string CreateSpeedBar(double tokensPerSecond)
     {
-        // Create a simple visual speed indicator
         int barLength = Math.Min((int)(tokensPerSecond / 10), 10);
         string bar = new string('█', barLength) + new string('░', 10 - barLength);
 
@@ -386,7 +416,6 @@ public class AppRunner(
         Console.WriteLine($"  ⏰ Session Duration: {FormatElapsedTime(sessionDuration)}");
         Console.WriteLine($"  🌊 Streaming: {(_streamingEnabled ? "Enabled" : "Disabled")}");
 
-        // Show model usage breakdown
         var modelUsage = _sessionMetrics.GroupBy(m => m.Model)
             .Select(g => new { Model = g.Key, Count = g.Count(), AvgTime = g.Average(m => m.ElapsedTime.TotalSeconds) })
             .OrderByDescending(m => m.Count);
@@ -400,33 +429,39 @@ public class AppRunner(
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("╚════════════════════════╝");
         Console.ResetColor();
+
+        // Log session stats
+        var modelUsageDict = modelUsage.ToDictionary(m => m.Model, m => m.Count);
+        _conversationLogger.LogSessionStats(totalRequests, avgResponseTime, sessionDuration, modelUsageDict);
     }
 
     private static string FormatElapsedTime(TimeSpan elapsed)
     {
         if (elapsed.TotalMilliseconds < 1000)
-        {
             return $"{elapsed.TotalMilliseconds:F0}ms";
-        }
         else if (elapsed.TotalSeconds < 60)
-        {
             return $"{elapsed.TotalSeconds:F2}s";
-        }
         else
-        {
             return $"{elapsed.Minutes}m {elapsed.Seconds:D2}s";
-        }
     }
 
     private static int EstimateTokens(string text)
     {
-        // Rough estimation: ~1 token per 4 characters
         return text.Length / 4;
     }
 
     private static int EstimateTokens(int charCount)
     {
         return charCount / 4;
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _conversationLogger?.Dispose();
+            _disposed = true;
+        }
     }
 
     private class ResponseMetrics
