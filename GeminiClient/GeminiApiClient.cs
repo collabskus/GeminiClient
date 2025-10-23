@@ -67,7 +67,6 @@ public class GeminiApiClient : IGeminiApiClient
                 _logger.LogError("Gemini API request failed with status code {StatusCode}. Response: {ErrorContent}",
                     response.StatusCode, errorContent);
 
-                // Throw more specific exception with status code
                 throw new GeminiApiException($"API request failed with status {response.StatusCode}: {errorContent}");
             }
 
@@ -104,7 +103,7 @@ public class GeminiApiClient : IGeminiApiClient
         }
         catch (GeminiApiException)
         {
-            throw; // Re-throw our custom exceptions
+            throw;
         }
         catch (Exception ex)
         {
@@ -137,6 +136,7 @@ public class GeminiApiClient : IGeminiApiClient
 
         _logger.LogInformation("Sending streaming request to Gemini API: {Uri}", requestUri.GetLeftPart(UriPartial.Path));
 
+        // Setup request outside of the streaming loop
         string jsonString = JsonSerializer.Serialize(requestBody, GeminiJsonContext.Default.GeminiRequest);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, requestUri)
@@ -149,10 +149,8 @@ public class GeminiApiClient : IGeminiApiClient
         request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
         request.Headers.CacheControl = new System.Net.Http.Headers.CacheControlHeaderValue { NoCache = true };
 
-        HttpResponseMessage? response = null;
-        Stream? stream = null;
-        StreamReader? reader = null;
-
+        // Send request and get response (handle errors before yielding)
+        HttpResponseMessage response;
         try
         {
             response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -164,9 +162,32 @@ public class GeminiApiClient : IGeminiApiClient
                     response.StatusCode, errorContent);
                 throw new GeminiApiException($"Streaming request failed with status {response.StatusCode}: {errorContent}");
             }
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "HTTP request error calling Gemini API streaming endpoint.");
+            throw new GeminiApiException("Failed to establish streaming connection.", ex);
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Streaming request was cancelled.");
+            throw new GeminiApiException("Streaming was cancelled.", ex);
+        }
+        catch (GeminiApiException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "An unexpected error occurred while streaming from Gemini API.");
+            throw new GeminiApiException("An unexpected streaming error occurred.", ex);
+        }
 
-            stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: false);
+        // Process the stream - no try-catch here to allow yield return
+        using (response)
+        {
+            Stream stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using StreamReader reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: false);
 
             string? line;
             while ((line = await reader.ReadLineAsync(cancellationToken)) != null)
@@ -206,34 +227,8 @@ public class GeminiApiClient : IGeminiApiClient
                     }
                 }
             }
+        }
 
-            _logger.LogInformation("Successfully completed streaming from Gemini API.");
-        }
-        catch (HttpRequestException ex)
-        {
-            _logger.LogError(ex, "HTTP request error calling Gemini API streaming endpoint.");
-            throw new GeminiApiException("Failed to establish streaming connection.", ex);
-        }
-        catch (TaskCanceledException ex)
-        {
-            _logger.LogWarning(ex, "Streaming request was cancelled.");
-            throw new GeminiApiException("Streaming was cancelled.", ex);
-        }
-        catch (GeminiApiException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "An unexpected error occurred while streaming from Gemini API.");
-            throw new GeminiApiException("An unexpected streaming error occurred.", ex);
-        }
-        finally
-        {
-            // Proper cleanup
-            reader?.Dispose();
-            stream?.Dispose();
-            response?.Dispose();
-        }
+        _logger.LogInformation("Successfully completed streaming from Gemini API.");
     }
 }
